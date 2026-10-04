@@ -1,0 +1,3 @@
+# Deny direct HTTP access to all files except those under public/
+# The public/ subdirectory has its own .htaccess that allows access.
+Require all denied
