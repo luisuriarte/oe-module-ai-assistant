@@ -22,6 +22,8 @@ use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Core\OEGlobalsBag;
+use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
+use OpenEMR\Modules\AiAssistant\Provider\ProviderFactory;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 use OpenEMR\Modules\AiAssistant\Transcription\TranscriptionClient;
 
@@ -191,6 +193,152 @@ class SettingsController
         } catch (\Throwable $e) {
             http_response_code(500);
             echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX endpoint: tests connection to an AI provider (e.g. Gemini models.list).
+     * Enforces ai_assistant/admin ACL and CSRF token. Consumes 0 tokens.
+     */
+    public function testProvider(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
+            return;
+        }
+
+        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
+        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
+            return;
+        }
+
+        $provider = trim((string) ($_POST['provider'] ?? 'gemini'));
+        $apiKey   = trim((string) ($_POST['api_key'] ?? ''));
+
+        try {
+            $factory = new ProviderFactory($this->settings);
+            $adapter = $factory->create($provider, $apiKey !== '' ? $apiKey : null);
+            $result  = $adapter->testConnection();
+            http_response_code($result['ok'] ? 200 : 400);
+            echo json_encode($result);
+        } catch (\Throwable $e) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AJAX endpoint: runs a synthetic test prompt through the real provider adapter.
+     * Enforces ai_assistant/admin ACL and CSRF token.
+     * Audited with patient_id = 0, encounter_id = 0, and records token usage.
+     */
+    public function adminTestPrompt(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
+            return;
+        }
+
+        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
+        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
+            return;
+        }
+
+        $userId = (int) (
+            $session->get('authUserID')
+            ?? $session->get('authId')
+            ?? $_SESSION['authUserID']
+            ?? $_SESSION['authId']
+            ?? 1
+        );
+
+        $provider = trim((string) ($_POST['provider'] ?? ''));
+        $prompt   = trim((string) ($_POST['prompt'] ?? ''));
+        if ($prompt === '') {
+            $prompt = 'Hello, this is a test prompt from OpenEMR AI Assistant.';
+        }
+
+        $systemPrompt = trim((string) ($_POST['system_prompt'] ?? 'You are a helpful clinical assistant. Provide brief, concise responses.'));
+
+        $messages = [];
+        if ($systemPrompt !== '') {
+            $messages[] = ['role' => 'system', 'content' => $systemPrompt];
+        }
+        $messages[] = ['role' => 'user', 'content' => $prompt];
+
+        $start   = microtime(true);
+        $factory = new ProviderFactory($this->settings);
+
+        try {
+            $adapter  = $factory->create($provider ?: null);
+            $response = $adapter->generate($messages, [
+                'max_tokens'  => (int) ($_POST['max_tokens'] ?? 256),
+                'temperature' => (float) ($_POST['temperature'] ?? 0.2),
+            ]);
+            $durationMs = (int) round((microtime(true) - $start) * 1000);
+
+            // Audit record: patient_id = 0, encounter_id = 0, action = 'test_prompt'
+            $audit = new AuditLogger();
+            $audit->log(
+                userId: $userId,
+                patientId: 0,
+                encounterId: 0,
+                action: 'test_prompt',
+                provider: $adapter->getProviderName(),
+                model: $response->model,
+                status: 'ok',
+                errorCode: '',
+                durationMs: $durationMs,
+                tokensIn: $response->tokensIn,
+                tokensOut: $response->tokensOut
+            );
+
+            http_response_code(200);
+            echo json_encode([
+                'ok'           => true,
+                'provider'     => $adapter->getProviderName(),
+                'model'        => $response->model,
+                'text'         => $response->text,
+                'tokens_in'    => $response->tokensIn,
+                'tokens_out'   => $response->tokensOut,
+                'total_tokens' => $response->getTotalTokens(),
+                'duration_ms'  => $durationMs,
+            ]);
+        } catch (\Throwable $e) {
+            $durationMs = (int) round((microtime(true) - $start) * 1000);
+            $audit = new AuditLogger();
+            $audit->log(
+                userId: $userId,
+                patientId: 0,
+                encounterId: 0,
+                action: 'test_prompt',
+                provider: $provider ?: $this->settings->getActiveProvider(),
+                model: '',
+                status: 'error',
+                errorCode: substr((new \ReflectionClass($e))->getShortName(), 0, 64),
+                durationMs: $durationMs,
+                tokensIn: 0,
+                tokensOut: 0
+            );
+
+            http_response_code(400);
+            echo json_encode([
+                'ok'         => false,
+                'error'      => $e->getMessage(),
+                'error_type' => (new \ReflectionClass($e))->getShortName(),
+            ]);
         }
     }
 }

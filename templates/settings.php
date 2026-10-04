@@ -124,7 +124,7 @@ use OpenEMR\Core\Header;
             <div class="card-header"><?php echo xlt('AI Provider'); ?></div>
             <div class="card-body">
                 <div class="form-group">
-                    <label for="active_provider"><?php echo xlt('Active Provider'); ?></label>
+                    <label for="active_provider"><strong><?php echo xlt('Active Provider'); ?></strong></label>
                     <select class="form-control w-auto" id="active_provider" name="active_provider">
                         <?php foreach (['openai' => 'OpenAI-compatible', 'anthropic' => 'Anthropic', 'gemini' => 'Google Gemini'] as $val => $label): ?>
                         <option value="<?php echo attr($val); ?>"
@@ -133,6 +133,12 @@ use OpenEMR\Core\Header;
                         </option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+
+                <div class="alert alert-warning py-2 mb-3">
+                    <i class="fa fa-exclamation-triangle mr-1"></i>
+                    <strong><?php echo xlt('Important privacy notice:'); ?></strong>
+                    <?php echo xlt('Free-tier API keys (such as Google AI Studio free tier) may allow the provider to review or use submitted content for model training. Free-tier keys must NEVER be used with real patient data. Use only paid/HIPAA/BAA enterprise tiers in production.'); ?>
                 </div>
 
                 <!-- OpenAI-compatible -->
@@ -380,6 +386,52 @@ use OpenEMR\Core\Header;
         </div>
     </div>
 
+    <!-- ==================== ADMIN TEST BENCH (AI PROVIDER) ==================== -->
+    <div class="ai-settings-section card border-primary mb-4">
+        <div class="card-header bg-light text-dark font-weight-bold d-flex justify-content-between align-items-center">
+            <span><i class="fa fa-robot text-primary mr-2"></i><?php echo xlt('Admin Test Bench — Synthetic AI Prompt Test (M3 Provider Layer)'); ?></span>
+            <span class="badge badge-primary"><?php echo xlt('Synthetic prompt (No patient data)'); ?></span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                <?php echo xlt('Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, or Anthropic). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.'); ?>
+            </p>
+            <div class="row mb-3">
+                <div class="col-md-3 form-group">
+                    <label for="test_prompt_provider"><strong><?php echo xlt('Provider'); ?></strong></label>
+                    <select class="form-control" id="test_prompt_provider">
+                        <option value="gemini" <?php echo ($current['active_provider'] ?? '') === 'gemini' ? 'selected' : ''; ?>>Google Gemini</option>
+                        <option value="openai" <?php echo ($current['active_provider'] ?? '') === 'openai' ? 'selected' : ''; ?>>OpenAI-compatible</option>
+                        <option value="anthropic" <?php echo ($current['active_provider'] ?? '') === 'anthropic' ? 'selected' : ''; ?>>Anthropic</option>
+                    </select>
+                </div>
+                <div class="col-md-9 form-group">
+                    <label for="test_system_prompt"><?php echo xlt('System prompt (optional):'); ?></label>
+                    <input type="text" class="form-control" id="test_system_prompt"
+                           value="<?php echo attr(xlt('You are a concise medical triage assistant. Answer in two brief sentences.')); ?>">
+                </div>
+                <div class="col-12 form-group">
+                    <label for="test_user_prompt"><strong><?php echo xlt('User prompt (synthetic only):'); ?></strong></label>
+                    <textarea class="form-control" id="test_user_prompt" rows="2"><?php echo text(xlt('Explain the clinical significance of a blood pressure reading of 150/95 mmHg.')); ?></textarea>
+                </div>
+                <div class="col-12">
+                    <button type="button" class="btn btn-primary" id="btn-run-test-prompt">
+                        <i class="fa fa-paper-plane mr-1"></i><?php echo xlt('Run Test Prompt'); ?>
+                    </button>
+                    <span class="spinner-border spinner-border-sm text-primary ml-2 d-none" id="test-prompt-spinner" role="status"></span>
+                    <span id="test-prompt-feedback" class="ml-2 font-weight-bold"></span>
+                </div>
+            </div>
+
+            <div class="form-group mb-0">
+                <label for="test_prompt_output"><strong><?php echo xlt('AI Provider Response:'); ?></strong></label>
+                <textarea class="form-control font-monospace" id="test_prompt_output" rows="4" readonly
+                          placeholder="<?php echo attr(xlt('Provider response will appear here...')); ?>"></textarea>
+                <div id="test_prompt_stats" class="mt-2 text-muted small"></div>
+            </div>
+        </div>
+    </div>
+
 </div><!-- /container-fluid -->
 
 <script>
@@ -597,16 +649,135 @@ use OpenEMR\Core\Header;
         });
     }
 
-    // 4. Provider test buttons (placeholder — AJAX endpoint added in M3)
+    // 4. Provider connection test buttons (Gemini / OpenAI / Anthropic)
     document.querySelectorAll('.btn-test-provider').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            const p = btn.dataset.provider;
-            const resEl = document.querySelector('.provider-test-result[data-provider="' + p + '"]');
+            const provider = btn.dataset.provider;
+            const resEl = document.querySelector('.provider-test-result[data-provider="' + provider + '"]');
+            const keyInput = document.querySelector('input[name="' + provider + '_api_key"]');
+            const enteredKey = keyInput ? keyInput.value.trim() : '';
+
             if (resEl) {
-                resEl.textContent = '<?php echo xlt('(available in M3)'); ?>';
+                resEl.className = 'provider-test-result ml-2 text-muted';
+                resEl.textContent = '<?php echo xlt('Testing connection...'); ?>';
             }
+            btn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('csrf_token_form', csrfToken);
+            formData.append('provider', provider);
+            if (enteredKey !== '') {
+                formData.append('api_key', enteredKey);
+            }
+
+            fetch(publicEndpoint + '?action=test_provider&site=' + encodeURIComponent(siteId), {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            })
+            .then(function (res) {
+                return res.json().then(function (data) { return { status: res.status, data: data }; });
+            })
+            .then(function (resObj) {
+                btn.disabled = false;
+                const data = resObj.data;
+                if (data.ok) {
+                    resEl.className = 'provider-test-result ml-2 text-success font-weight-bold';
+                    let msg = '<?php echo xlt('Connection successful'); ?> (' + data.latency_ms + 'ms, HTTP ' + data.status_code + ')';
+                    if (data.models && data.models.length > 0) {
+                        msg += ' — ' + data.models.length + ' <?php echo xlt('models discovered'); ?>';
+                    }
+                    resEl.textContent = msg;
+                } else {
+                    resEl.className = 'provider-test-result ml-2 text-danger font-weight-bold';
+                    resEl.textContent = '<?php echo xlt('Connection failed:'); ?> ' + (data.error || ('HTTP ' + resObj.status));
+                }
+            })
+            .catch(function (err) {
+                btn.disabled = false;
+                if (resEl) {
+                    resEl.className = 'provider-test-result ml-2 text-danger font-weight-bold';
+                    resEl.textContent = '<?php echo xlt('Request error:'); ?> ' + err.message;
+                }
+            });
         });
     });
+
+    // 5. Admin Test Bench (Synthetic AI Prompt Test)
+    const btnRunPrompt = document.getElementById('btn-run-test-prompt');
+    const promptProviderSelect = document.getElementById('test_prompt_provider');
+    const userPromptInput = document.getElementById('test_user_prompt');
+    const systemPromptInput = document.getElementById('test_system_prompt');
+    const promptSpinner = document.getElementById('test-prompt-spinner');
+    const promptFeedback = document.getElementById('test-prompt-feedback');
+    const promptOutput = document.getElementById('test_prompt_output');
+    const promptStats = document.getElementById('test_prompt_stats');
+
+    if (btnRunPrompt && userPromptInput) {
+        btnRunPrompt.addEventListener('click', function () {
+            const promptText = userPromptInput.value.trim();
+            if (promptText === '') {
+                alert('<?php echo xlt('Please enter a synthetic test prompt.'); ?>');
+                return;
+            }
+
+            const provider = promptProviderSelect ? promptProviderSelect.value : 'gemini';
+            const systemText = systemPromptInput ? systemPromptInput.value.trim() : '';
+
+            btnRunPrompt.disabled = true;
+            if (promptSpinner) promptSpinner.classList.remove('d-none');
+            if (promptFeedback) {
+                promptFeedback.className = 'ml-2 text-info font-weight-bold';
+                promptFeedback.textContent = '<?php echo xlt('Contacting provider...'); ?>';
+            }
+            if (promptOutput) promptOutput.value = '';
+            if (promptStats) promptStats.innerHTML = '';
+
+            const formData = new FormData();
+            formData.append('csrf_token_form', csrfToken);
+            formData.append('provider', provider);
+            formData.append('prompt', promptText);
+            formData.append('system_prompt', systemText);
+
+            fetch(publicEndpoint + '?action=admin_test_prompt&site=' + encodeURIComponent(siteId), {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            })
+            .then(function (res) {
+                return res.json().then(function (data) { return { status: res.status, data: data }; });
+            })
+            .then(function (resObj) {
+                btnRunPrompt.disabled = false;
+                if (promptSpinner) promptSpinner.classList.add('d-none');
+                const data = resObj.data;
+
+                if (data.ok) {
+                    promptFeedback.className = 'ml-2 text-success font-weight-bold';
+                    promptFeedback.textContent = '<?php echo xlt('Response received!'); ?>';
+                    promptOutput.value = data.text;
+                    promptStats.innerHTML = '<span class="badge badge-success mr-2">' + (data.provider || '').toUpperCase() + ' (' + data.model + ')</span> ' +
+                        '<span><strong><?php echo xlt('Tokens:'); ?></strong> ' + data.tokens_in + ' <?php echo xlt('in'); ?> / ' + data.tokens_out + ' <?php echo xlt('out'); ?> (' + data.total_tokens + ' <?php echo xlt('total'); ?>) | ' +
+                        '<strong><?php echo xlt('Latency:'); ?></strong> ' + data.duration_ms + ' ms | ' +
+                        '<strong class="text-success"><i class="fa fa-check-circle"></i> <?php echo xlt('Logged in audit table'); ?></strong></span>';
+                } else {
+                    promptFeedback.className = 'ml-2 text-danger font-weight-bold';
+                    promptFeedback.textContent = '<?php echo xlt('Error:'); ?> ' + (data.error_type ? '[' + data.error_type + '] ' : '') + data.error;
+                    if (data.error_type === 'ProviderSafetyBlockException') {
+                        promptStats.innerHTML = '<span class="text-danger font-weight-bold"><i class="fa fa-ban"></i> <?php echo xlt('Blocked by provider safety filter'); ?></span>';
+                    }
+                }
+            })
+            .catch(function (err) {
+                btnRunPrompt.disabled = false;
+                if (promptSpinner) promptSpinner.classList.add('d-none');
+                if (promptFeedback) {
+                    promptFeedback.className = 'ml-2 text-danger font-weight-bold';
+                    promptFeedback.textContent = '<?php echo xlt('Request error:'); ?> ' + err.message;
+                }
+            });
+        });
+    }
 }());
 </script>
 </body>

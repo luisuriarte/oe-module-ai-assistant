@@ -50,6 +50,8 @@ $action = $_GET['action'] ?? 'settings';
 $routes = [
     'settings'          => [SettingsController::class, 'dispatch', 'ai_assistant', 'admin'],
     'test_whisper'      => [SettingsController::class, 'testWhisper', 'ai_assistant', 'admin'],
+    'test_provider'     => [SettingsController::class, 'testProvider', 'ai_assistant', 'admin'],
+    'admin_test_prompt' => [SettingsController::class, 'adminTestPrompt', 'ai_assistant', 'admin'],
     'transcribe_submit' => [TranscribeController::class, 'submit', 'ai_assistant', 'use'],
     'transcribe_status' => [TranscribeController::class, 'status', 'ai_assistant', 'use'],
 ];
