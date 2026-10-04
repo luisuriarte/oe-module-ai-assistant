@@ -52,6 +52,7 @@ $routes = [
     'test_whisper'      => [SettingsController::class, 'testWhisper', 'ai_assistant', 'admin'],
     'test_provider'     => [SettingsController::class, 'testProvider', 'ai_assistant', 'admin'],
     'admin_test_prompt' => [SettingsController::class, 'adminTestPrompt', 'ai_assistant', 'admin'],
+    'preview_context'   => [SettingsController::class, 'previewContext', 'ai_assistant', 'admin'],
     'transcribe_submit' => [TranscribeController::class, 'submit', 'ai_assistant', 'use'],
     'transcribe_status' => [TranscribeController::class, 'status', 'ai_assistant', 'use'],
 ];

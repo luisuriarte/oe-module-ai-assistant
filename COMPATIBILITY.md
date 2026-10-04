@@ -55,6 +55,10 @@ Last updated: M1
 | `SystemLogger` | `OpenEMR\Common\Logging` | ✅ | ✅ | Identical. PSR-3 compatible |
 | `ModulesClassLoader::registerNamespaceIfNotExists()` | `OpenEMR\Core` | ✅ | ✅ | 8.2 returns void, 8.4.1 returns bool — no impact |
 | `AbstractModuleActionListener` | `OpenEMR\Core` | ✅ | ✅ | Identical interface |
+| `AclMain::aclCheckCore('sensitivities', $val)` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical. Native encounter sensitivity check (high, sensitive, etc.) |
+| `AclMain::aclCheckCore('patients', 'med')` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical. Native patient clinical chart access check |
+| `lists` schema (`type='allergy'`, `activity=1`) | OpenEMR DB | ✅ | ✅ | Universal source of truth for active allergies in both 8.2.0 and 8.4.1 |
+| `forms.deleted = 0` check | OpenEMR DB | ✅ | ✅ | Soft-delete convention used across all clinical encounter forms |
 
 ## Capability Detection Pattern
 

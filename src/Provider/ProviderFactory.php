@@ -67,6 +67,8 @@ class ProviderFactory
             );
         }
 
+        $allowPrivate = ((int) $this->settings->get('provider_allow_private_hosts', 0)) === 1;
+
         return match ($targetProvider) {
             'gemini' => new GeminiAdapter(
                 apiKey: $apiKey,
@@ -81,6 +83,7 @@ class ProviderFactory
                 temperature: (float) $this->settings->get('openai_temperature', 0.2),
                 maxTokens: (int) $this->settings->get('openai_max_tokens', 2048),
                 baseUrl: (string) $this->settings->get('openai_base_url', 'https://api.openai.com/v1'),
+                allowPrivate: $allowPrivate,
             ),
             'anthropic' => new AnthropicAdapter(
                 apiKey: $apiKey,

@@ -341,5 +341,112 @@ class SettingsController
             ]);
         }
     }
+
+    /**
+     * AJAX endpoint: generates patient context and runs automated leak check.
+     * Enforces ai_assistant/admin ACL, patient access ACL (patients/med or patients/demo),
+     * and CSRF token.
+     * Audited with patient_id, duration, and leak check outcome WITHOUT logging any clinical text.
+     */
+    public function previewContext(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
+            return;
+        }
+
+        // Verify native patient-level access
+        if (!AclMain::aclCheckCore('patients', 'med') && !AclMain::aclCheckCore('patients', 'demo')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => xlt('Patient access denied.')]);
+            return;
+        }
+
+        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
+        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
+            return;
+        }
+
+        $userId = (int) (
+            $session->get('authUserID')
+            ?? $session->get('authId')
+            ?? $_SESSION['authUserID']
+            ?? $_SESSION['authId']
+            ?? 1
+        );
+
+        $pid = (int) ($_POST['pid'] ?? 0);
+        if ($pid <= 0) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid patient ID.')]);
+            return;
+        }
+
+        $start   = microtime(true);
+        $builder = new \OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder($this->settings);
+
+        try {
+            $contextResult = $builder->buildContext($pid);
+            $contextText   = $contextResult['text'];
+            $leakCheck     = $builder->leakCheck($contextText, $pid);
+            $durationMs    = (int) round((microtime(true) - $start) * 1000);
+
+            // Audit record: patient_id is logged, but NO CLINICAL CONTENT is saved.
+            $audit = new AuditLogger();
+            $audit->log(
+                userId: $userId,
+                patientId: $pid,
+                encounterId: 0,
+                action: 'preview_context',
+                provider: '',
+                model: '',
+                status: $leakCheck['pass'] ? 'ok' : 'leak_detected',
+                errorCode: $leakCheck['pass'] ? '' : 'LEAK_DETECTED',
+                durationMs: $durationMs,
+                tokensIn: 0,
+                tokensOut: 0
+            );
+
+            http_response_code(200);
+            echo json_encode([
+                'ok'               => true,
+                'pid'              => $pid,
+                'context'          => $contextText,
+                'estimated_tokens' => $contextResult['estimated_tokens'],
+                'truncated'        => $contextResult['truncated'],
+                'leak_check'       => $leakCheck,
+                'duration_ms'      => $durationMs,
+            ]);
+        } catch (\Throwable $e) {
+            $durationMs = (int) round((microtime(true) - $start) * 1000);
+            $audit = new AuditLogger();
+            $audit->log(
+                userId: $userId,
+                patientId: $pid,
+                encounterId: 0,
+                action: 'preview_context',
+                provider: '',
+                model: '',
+                status: 'error',
+                errorCode: substr((new \ReflectionClass($e))->getShortName(), 0, 64),
+                durationMs: $durationMs,
+                tokensIn: 0,
+                tokensOut: 0
+            );
+
+            http_response_code(400);
+            echo json_encode([
+                'ok'    => false,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
 }
+
 

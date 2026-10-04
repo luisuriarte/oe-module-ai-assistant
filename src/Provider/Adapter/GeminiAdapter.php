@@ -162,6 +162,16 @@ class GeminiAdapter extends AbstractProviderAdapter
         }
         $generatedText = implode('', $textParts);
 
+        // Distinct check for empty output due to token budget limit (MAX_TOKENS / LENGTH)
+        if ($generatedText === '' && in_array($finishReason, ['MAX_TOKENS', 'LENGTH'], true)) {
+            throw new ProviderInvalidResponseException(
+                "Gemini output reached max token limit ({$finishReason}) before producing text. Increase max tokens in settings.",
+                $resp['statusCode'],
+                null,
+                'gemini'
+            );
+        }
+
         // Usage counts
         $usage     = $data['usageMetadata'] ?? [];
         $tokensIn  = (int) ($usage['promptTokenCount'] ?? 0);

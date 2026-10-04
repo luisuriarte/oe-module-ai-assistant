@@ -177,6 +177,16 @@ use OpenEMR\Core\Header;
                                    autocomplete="new-password">
                             <small class="form-text text-muted"><?php echo xlt('Never stored in logs or sent to the browser.'); ?></small>
                         </div>
+                        <div class="col-12 form-group">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="provider_allow_private_hosts"
+                                       name="provider_allow_private_hosts" value="1"
+                                       <?php echo ($current['provider_allow_private_hosts'] ?? '0') === '1' ? 'checked' : ''; ?>>
+                                <label class="form-check-label text-warning" for="provider_allow_private_hosts">
+                                    <strong><?php echo xlt('Allow private/local network hosts (SSRF bypass — enable ONLY for local services like Ollama/LocalAI)'); ?></strong>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="openai">
                         <?php echo xlt('Test OpenAI Connection'); ?>
@@ -283,13 +293,20 @@ use OpenEMR\Core\Header;
                         <option value="en" <?php echo ($current['output_language'] ?? 'es') === 'en' ? 'selected' : ''; ?>>English</option>
                     </select>
                 </div>
+                <div class="col-md-3 form-group">
+                    <label for="context_relative_dates"><?php echo xlt('Date formatting'); ?></label>
+                    <select class="form-control" id="context_relative_dates" name="context_relative_dates">
+                        <option value="0" <?php echo ($current['context_relative_dates'] ?? '0') === '0' ? 'selected' : ''; ?>><?php echo xlt('Absolute (YYYY-MM-DD)'); ?></option>
+                        <option value="1" <?php echo ($current['context_relative_dates'] ?? '0') === '1' ? 'selected' : ''; ?>><?php echo xlt('Relative (e.g. hoy, hace 3 días)'); ?></option>
+                    </select>
+                </div>
                 <div class="col-md-3 form-group d-flex align-items-end">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="context_include_labs"
                                name="context_include_labs" value="1"
                                <?php echo ($current['context_include_labs'] ?? '0') === '1' ? 'checked' : ''; ?>>
                         <label class="form-check-label" for="context_include_labs">
-                            <?php echo xlt('Include recent lab results'); ?>
+                            <?php echo xlt('Include recent lab results (off by default)'); ?>
                         </label>
                     </div>
                 </div>
@@ -428,6 +445,44 @@ use OpenEMR\Core\Header;
                 <textarea class="form-control font-monospace" id="test_prompt_output" rows="4" readonly
                           placeholder="<?php echo attr(xlt('Provider response will appear here...')); ?>"></textarea>
                 <div id="test_prompt_stats" class="mt-2 text-muted small"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== ADMIN TEST BENCH (PATIENT CONTEXT PREVIEW & LEAK CHECK) ==================== -->
+    <div class="ai-settings-section card border-success mb-4">
+        <div class="card-header bg-light text-dark font-weight-bold d-flex justify-content-between align-items-center">
+            <span><?php echo xlt('Admin Test Bench — Patient Context Preview & Leak Check'); ?></span>
+            <span class="badge badge-success"><?php echo xlt('M4 Privacy Verification'); ?></span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small">
+                <?php echo xlt('Generates the exact anonymized/redacted prompt context that would be sent to the AI model for a selected patient. Runs an automated leak check verifying that the patient\'s real name, surname, DOB, phone, email, and national/SSN identifiers do not appear anywhere in the assembled text. Audited with patient ID but without clinical text.'); ?>
+            </p>
+
+            <div class="form-row align-items-end mb-3">
+                <div class="col-md-3 form-group mb-0">
+                    <label for="preview_patient_id"><strong><?php echo xlt('Patient ID (PID):'); ?></strong></label>
+                    <input type="number" min="1" class="form-control" id="preview_patient_id" placeholder="<?php echo attr(xlt('e.g. 1')); ?>" value="1">
+                </div>
+                <div class="col-md-5 form-group mb-0">
+                    <button type="button" class="btn btn-success" id="btn-preview-context">
+                        <i class="fa fa-user-shield mr-1"></i><?php echo xlt('Generate Context & Check Leaks'); ?>
+                    </button>
+                    <span class="spinner-border spinner-border-sm text-success ml-2 d-none" id="preview-context-spinner" role="status"></span>
+                </div>
+            </div>
+
+            <!-- Leak Check Result Banner -->
+            <div id="leak-check-banner" class="d-none mb-3"></div>
+
+            <div class="form-group mb-0">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label for="preview_context_output" class="mb-0"><strong><?php echo xlt('Compiled Patient Context:'); ?></strong></label>
+                    <span id="preview-context-meta" class="text-muted small"></span>
+                </div>
+                <textarea class="form-control font-monospace" id="preview_context_output" rows="10" readonly
+                          placeholder="<?php echo attr(xlt('Patient context preview will appear here...')); ?>"></textarea>
             </div>
         </div>
     </div>
@@ -774,6 +829,91 @@ use OpenEMR\Core\Header;
                 if (promptFeedback) {
                     promptFeedback.className = 'ml-2 text-danger font-weight-bold';
                     promptFeedback.textContent = '<?php echo xlt('Request error:'); ?> ' + err.message;
+                }
+            });
+        });
+    }
+
+    // 5. Patient Context Preview & Leak Check
+    const btnPreview = document.getElementById('btn-preview-context');
+    const inputPid = document.getElementById('preview_patient_id');
+    const spinnerPreview = document.getElementById('preview-context-spinner');
+    const bannerLeak = document.getElementById('leak-check-banner');
+    const outputContext = document.getElementById('preview_context_output');
+    const metaContext = document.getElementById('preview-context-meta');
+
+    if (btnPreview && inputPid) {
+        btnPreview.addEventListener('click', function () {
+            const pid = parseInt(inputPid.value, 10);
+            if (isNaN(pid) || pid <= 0) {
+                alert('<?php echo xlt('Please enter a valid Patient ID.'); ?>');
+                return;
+            }
+
+            btnPreview.disabled = true;
+            if (spinnerPreview) spinnerPreview.classList.remove('d-none');
+            if (bannerLeak) {
+                bannerLeak.className = 'd-none';
+                bannerLeak.innerHTML = '';
+            }
+            if (outputContext) outputContext.value = '';
+            if (metaContext) metaContext.textContent = '';
+
+            const formData = new FormData();
+            formData.append('csrf_token_form', csrfToken);
+            formData.append('pid', pid);
+
+            fetch(publicEndpoint + '?action=preview_context&site=' + encodeURIComponent(siteId), {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: formData
+            })
+            .then(function (res) {
+                return res.json().then(function (data) { return { status: res.status, data: data }; });
+            })
+            .then(function (resObj) {
+                btnPreview.disabled = false;
+                if (spinnerPreview) spinnerPreview.classList.add('d-none');
+                const data = resObj.data;
+
+                if (data.ok) {
+                    if (outputContext) outputContext.value = data.context;
+                    if (metaContext) {
+                        metaContext.innerHTML = '<strong>' + data.estimated_tokens + '</strong> tokens est. (~4 chars/token) | ' +
+                            '<strong>' + data.duration_ms + ' ms</strong> | ' +
+                            '<span class="text-success"><i class="fa fa-shield-alt"></i> <?php echo xlt('Audited (no clinical text logged)'); ?></span>';
+                    }
+
+                    if (bannerLeak) {
+                        bannerLeak.classList.remove('d-none');
+                        if (data.leak_check && data.leak_check.pass) {
+                            bannerLeak.className = 'alert alert-success d-flex align-items-center mb-3';
+                            bannerLeak.innerHTML = '<i class="fa fa-check-circle fa-2x mr-3"></i>' +
+                                '<div><strong><?php echo xlt('PASS: No PII Leaks Detected'); ?></strong><br>' +
+                                '<small class="text-muted"><?php echo xlt('Patient name, DOB, phone, email, and ID numbers were searched in the output text and none were found.'); ?></small></div>';
+                        } else {
+                            const leaks = (data.leak_check && data.leak_check.leaks) ? data.leak_check.leaks.join(', ') : '<?php echo xlt('Unknown'); ?>';
+                            bannerLeak.className = 'alert alert-danger d-flex align-items-center mb-3';
+                            bannerLeak.innerHTML = '<i class="fa fa-exclamation-triangle fa-2x mr-3"></i>' +
+                                '<div><strong><?php echo xlt('FAIL: Potential PII Leak Detected!'); ?></strong><br>' +
+                                '<small><?php echo xlt('Leaked fields:'); ?> ' + leaks + '</small></div>';
+                        }
+                    }
+                } else {
+                    if (bannerLeak) {
+                        bannerLeak.classList.remove('d-none');
+                        bannerLeak.className = 'alert alert-danger mb-3';
+                        bannerLeak.innerHTML = '<strong><?php echo xlt('Error:'); ?></strong> ' + (data.error || '<?php echo xlt('Unknown error occurred'); ?>');
+                    }
+                }
+            })
+            .catch(function (err) {
+                btnPreview.disabled = false;
+                if (spinnerPreview) spinnerPreview.classList.add('d-none');
+                if (bannerLeak) {
+                    bannerLeak.classList.remove('d-none');
+                    bannerLeak.className = 'alert alert-danger mb-3';
+                    bannerLeak.innerHTML = '<strong><?php echo xlt('Request error:'); ?></strong> ' + err.message;
                 }
             });
         });

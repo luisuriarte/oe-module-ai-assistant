@@ -55,6 +55,10 @@ PHP mínimo: **8.2.0**
 | `SystemLogger` | `OpenEMR\Common\Logging` | ✅ | ✅ | Idéntico. Compatible con PSR-3 |
 | `ModulesClassLoader::registerNamespaceIfNotExists()` | `OpenEMR\Core` | ✅ | ✅ | 8.2 devuelve void, 8.4.1 devuelve bool — sin impacto |
 | `AbstractModuleActionListener` | `OpenEMR\Core` | ✅ | ✅ | Interfaz idéntica |
+| `AclMain::aclCheckCore('sensitivities', $val)` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Verificación nativa de sensibilidad de encuentro (high, sensitive, etc.) |
+| `AclMain::aclCheckCore('patients', 'med')` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Verificación nativa de acceso clínico al paciente |
+| Esquema `lists` (`type='allergy'`, `activity=1`) | OpenEMR DB | ✅ | ✅ | Fuente universal de alergias activas tanto en 8.2.0 como en 8.4.1 |
+| Chequeo `forms.deleted = 0` | OpenEMR DB | ✅ | ✅ | Convención de soft-delete en todos los formularios clínicos |
 
 ## Estrategia de Detección por Capacidad
 

@@ -202,7 +202,8 @@ class SettingsManager
             'whisper_max_audio_sec'  => '180',  // 3 minutes (default per spec)
 
             // Provider
-            'active_provider'        => 'openai',
+            'active_provider'              => 'openai',
+            'provider_allow_private_hosts' => '0',
 
             // OpenAI-compatible
             'openai_base_url'        => 'https://api.openai.com/v1',
@@ -229,6 +230,7 @@ class SettingsManager
             'context_include_labs'   => '0',
             'context_num_encounters' => '5',
             'context_token_budget'   => '4000',
+            'context_relative_dates' => '0',
 
             // Output
             'output_language'        => 'es',   // Spanish

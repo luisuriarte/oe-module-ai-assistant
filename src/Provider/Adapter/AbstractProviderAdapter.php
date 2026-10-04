@@ -103,37 +103,91 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
 
     /**
      * Checks if a host resolves to a private, loopback, or link-local IP range.
+     * Supports both IPv4 and IPv6 resolution and literal formats.
      */
     public static function isPrivateOrReservedHost(string $host): bool
     {
-        if (in_array(strtolower($host), ['localhost', 'metadata.google.internal', '169.254.169.254'], true)) {
+        $cleanHost = strtolower(trim($host, '[]'));
+
+        if (in_array($cleanHost, ['localhost', 'metadata.google.internal', '169.254.169.254', '::1', '0.0.0.0'], true)) {
             return true;
         }
 
-        // Check if host is direct IP
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            return self::isPrivateIp($host);
+        // Check if host is direct IP literal (IPv4 or IPv6)
+        if (filter_var($cleanHost, FILTER_VALIDATE_IP)) {
+            return self::isPrivateIp($cleanHost);
         }
 
-        // Resolve DNS and check resulting IP
-        $ip = gethostbyname($host);
-        if ($ip !== $host && filter_var($ip, FILTER_VALIDATE_IP)) {
-            return self::isPrivateIp($ip);
+        // 1. Resolve DNS records for both IPv4 and IPv6
+        $ips = [];
+        if (function_exists('dns_get_record')) {
+            $records = @dns_get_record($cleanHost, DNS_A | DNS_AAAA);
+            if (is_array($records)) {
+                foreach ($records as $rec) {
+                    if (isset($rec['ip'])) {
+                        $ips[] = (string) $rec['ip'];
+                    } elseif (isset($rec['ipv6'])) {
+                        $ips[] = (string) $rec['ipv6'];
+                    }
+                }
+            }
+        }
+
+        // Fallback to gethostbynamel
+        if (empty($ips) && function_exists('gethostbynamel')) {
+            $ipv4s = @gethostbynamel($cleanHost);
+            if (is_array($ipv4s)) {
+                $ips = array_merge($ips, $ipv4s);
+            }
+        }
+
+        if (empty($ips)) {
+            $single = @gethostbyname($cleanHost);
+            if ($single !== $cleanHost && filter_var($single, FILTER_VALIDATE_IP)) {
+                $ips[] = $single;
+            }
+        }
+
+        foreach ($ips as $ip) {
+            if (self::isPrivateIp($ip)) {
+                return true;
+            }
         }
 
         return false;
     }
 
-    private static function isPrivateIp(string $ip): bool
+    public static function isPrivateIp(string $ip): bool
     {
-        // FILTER_FLAG_NO_PRIV_RANGE / NO_RES_RANGE returns false if IP is private/reserved
+        // 1. Standard PHP filter check for private and reserved ranges
         $filtered = filter_var(
             $ip,
             FILTER_VALIDATE_IP,
             FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
         );
 
-        return ($filtered === false);
+        if ($filtered === false) {
+            return true;
+        }
+
+        // 2. Extra IPv6 checks for ULA (fc00::/7), link-local (fe80::/10), and IPv4-mapped (::ffff:127.0.0.1)
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $lower = strtolower($ip);
+            if (str_starts_with($lower, 'fc') || str_starts_with($lower, 'fd')) {
+                return true; // Unique Local Address (ULA)
+            }
+            if (str_starts_with($lower, 'fe8') || str_starts_with($lower, 'fe9') || str_starts_with($lower, 'fea') || str_starts_with($lower, 'feb')) {
+                return true; // Link-local
+            }
+            if (str_starts_with($lower, '::ffff:')) {
+                $ipv4Part = substr($lower, 7);
+                if (filter_var($ipv4Part, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    return self::isPrivateIp($ipv4Part);
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
