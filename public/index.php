@@ -26,9 +26,22 @@ use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
 
 // --- Session guard ---
 $session = SessionWrapperFactory::getInstance()->getActiveSession();
-if (empty($_SESSION['authUserID'])) {
+$userId  = (int) (
+    $session->get('authUserID')
+    ?? $session->get('authId')
+    ?? $_SESSION['authUserID']
+    ?? $_SESSION['authId']
+    ?? 0
+);
+$authUser = (string) ($session->get('authUser') ?? $_SESSION['authUser'] ?? '');
+
+if ($userId <= 0 && $authUser === '') {
     http_response_code(401);
     exit(json_encode(['error' => xlt('Unauthorized')]));
+}
+
+if (empty($_SESSION['authUserID']) && $userId > 0) {
+    $_SESSION['authUserID'] = $userId;
 }
 
 $action = $_GET['action'] ?? 'settings';

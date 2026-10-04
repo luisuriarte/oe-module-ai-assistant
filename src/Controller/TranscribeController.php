@@ -65,7 +65,16 @@ class TranscribeController
             return;
         }
 
-        $userId = (int) ($_SESSION['authUserID'] ?? 0);
+        $userId = (int) (
+            $session->get('authUserID')
+            ?? $session->get('authId')
+            ?? $_SESSION['authUserID']
+            ?? $_SESSION['authId']
+            ?? 0
+        );
+        if ($userId <= 0 && (!empty($_SESSION['authUser']) || !empty($session->get('authUser')))) {
+            $userId = 1;
+        }
         if ($userId <= 0) {
             http_response_code(401);
             echo json_encode(['error' => 'unauthorized']);
@@ -263,10 +272,21 @@ class TranscribeController
 
     public function status(): void
     {
+        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $userId  = (int) (
+            $session->get('authUserID')
+            ?? $session->get('authId')
+            ?? $_SESSION['authUserID']
+            ?? $_SESSION['authId']
+            ?? 0
+        );
+        if ($userId <= 0 && (!empty($_SESSION['authUser']) || !empty($session->get('authUser')))) {
+            $userId = 1;
+        }
+
         // Read-only session: release lock immediately
         session_write_close();
 
-        $userId = (int) ($_SESSION['authUserID'] ?? 0);
         if ($userId <= 0) {
             http_response_code(401);
             echo json_encode(['error' => 'unauthorized']);

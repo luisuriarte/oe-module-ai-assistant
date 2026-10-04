@@ -146,6 +146,7 @@ class SettingsController
         ];
 
         $consentGiven = $this->settings->isConsentGiven();
+        $siteId       = $session->get('site_id') ?? $_SESSION['site_id'] ?? ($GLOBALS['site_id'] ?? 'default');
 
         // Include the settings template
         $templatePath = __DIR__ . '/../../templates/settings.php';

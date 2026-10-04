@@ -399,6 +399,7 @@ use OpenEMR\Core\Header;
 
     const webRoot = <?php echo json_encode($webRoot); ?>;
     const csrfToken = <?php echo json_encode($csrf); ?>;
+    const siteId = <?php echo json_encode($siteId ?? 'default'); ?>;
     const publicEndpoint = webRoot + '/interface/modules/custom_modules/oe-module-ai-assistant/public/index.php';
 
     // 2. Test Whisper Connection
@@ -415,8 +416,9 @@ use OpenEMR\Core\Header;
             formData.append('csrf_token_form', csrfToken);
             formData.append('whisper_url', whisperUrl);
 
-            fetch(publicEndpoint + '?action=test_whisper', {
+            fetch(publicEndpoint + '?action=test_whisper&site=' + encodeURIComponent(siteId), {
                 method: 'POST',
+                credentials: 'same-origin',
                 body: formData
             })
             .then(function (res) {
@@ -496,8 +498,9 @@ use OpenEMR\Core\Header;
             formData.append('test_mode', '1');
             formData.append('audio', file);
 
-            fetch(publicEndpoint + '?action=transcribe_submit', {
+            fetch(publicEndpoint + '?action=transcribe_submit&site=' + encodeURIComponent(siteId), {
                 method: 'POST',
+                credentials: 'same-origin',
                 body: formData
             })
             .then(function (res) {
@@ -548,7 +551,9 @@ use OpenEMR\Core\Header;
                     const elapsedSec = Math.round((Date.now() - pollStart) / 1000);
                     statusText.textContent = '<?php echo xlt('Processing audio in background...'); ?> (' + elapsedSec + 's)';
 
-                    fetch(publicEndpoint + '?action=transcribe_status&job_id=' + encodeURIComponent(jobId))
+                    fetch(publicEndpoint + '?action=transcribe_status&site=' + encodeURIComponent(siteId) + '&job_id=' + encodeURIComponent(jobId), {
+                        credentials: 'same-origin'
+                    })
                     .then(function (pRes) {
                         return pRes.json().then(function (pData) { return { status: pRes.status, data: pData }; });
                     })
