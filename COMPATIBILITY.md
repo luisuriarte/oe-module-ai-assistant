@@ -40,7 +40,6 @@ Last updated: M1
 | `PatientService::getFreshPid()` | `OpenEMR\Services` | ✅ | ✅ | Identical |
 | `EncounterService::getOneByPidEid()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid, $encounter_id)` |
 | `EncounterService::getMostRecentEncounterForPatient()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid): ?array` |
-| `EncounterService::insertSoapNote()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid, $eid, $data)` |
 | `PatientIssuesService::getActiveIssues()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `(int $pid): ProcessingResult` |
 | `PatientIssuesService::getOneById()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($issueId)` |
 | `AclMain::aclCheckCore()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical. Checks `(section, value, user, return_val)` |
@@ -78,9 +77,17 @@ if (class_exists('\OpenEMR\Common\Forms\EncounterFormAccess')) {
 | OpenEMR 8.4.1 | `"php": ">=8.3.0"` | `8.3` | Enforced by `Checker::$minimumPhpVersion = "8.3.0"` |
 | **This Module** | **`"php": ">=8.2.0"`** | **`8.2`** | **Must run on both 8.2.0 and 8.4.1** |
 
-### PHP Syntax Constraints
-Because this module supports OpenEMR 8.2.0 running on PHP 8.2, all module code must strictly compile on PHP 8.2.0. Forbidden constructs:
-- `readonly` classes (8.3+) — use `readonly` properties instead (8.1+)
-- `json_validate()` (8.3+)
-- Typed class constants with `final const Type` (8.3+)
-- Dynamic class constant fetch with `Foo::{$bar}` (8.3+)
+### PHP 8.3+ Features Forbidden in this Module
+To ensure full compatibility with PHP 8.2.0:
+- `json_validate()` function (PHP 8.3+)
+- Typed class constants (`const string FOO = 'bar'`) (PHP 8.3+)
+- Dynamic class constant fetch (`ClassName::{$var}`) (PHP 8.3+)
+- `#[Override]` attribute (PHP 8.3+)
+- Anonymous `readonly` classes (PHP 8.3+)
+
+### PHP 8.2 Features Allowed and Supported
+- `readonly` properties and `readonly` classes (PHP 8.2+)
+- Enums (PHP 8.1+)
+- Disjunctive Normal Form (DNF) types (PHP 8.2+)
+- `true`, `false`, and `null` as standalone types (PHP 8.2+)
+- First-class callable syntax (PHP 8.1+)

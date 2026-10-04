@@ -40,7 +40,6 @@ PHP mínimo: **8.2.0**
 | `PatientService::getFreshPid()` | `OpenEMR\Services` | ✅ | ✅ | Idéntico |
 | `EncounterService::getOneByPidEid()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `($pid, $encounter_id)` |
 | `EncounterService::getMostRecentEncounterForPatient()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `($pid): ?array` |
-| `EncounterService::insertSoapNote()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `($pid, $eid, $data)` |
 | `PatientIssuesService::getActiveIssues()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `(int $pid): ProcessingResult` |
 | `PatientIssuesService::getOneById()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `($issueId)` |
 | `AclMain::aclCheckCore()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Verifica `(section, value, user, return_val)` |
@@ -82,13 +81,17 @@ if (class_exists('\OpenEMR\Common\Forms\EncounterFormAccess')) {
 | OpenEMR 8.4.1 | `"php": ">=8.3.0"` | `8.3` | Verificado en `composer.json` y `Checker::$minimumPhpVersion = "8.3.0"` |
 | **Este Módulo** | **`"php": ">=8.2.0"`** | **`8.2`** | **Debe compilar y operar en 8.2.0 y 8.4.1** |
 
-### Restricciones de Sintaxis PHP
-Dado que el módulo debe ejecutarse sobre OpenEMR 8.2.0 con PHP 8.2, todo el código debe compilar estrictamente en PHP 8.2.0. Construcciones prohibidas:
-- Clases `readonly` (PHP 8.3+) ← Las *propiedades* `readonly` están permitidas (PHP 8.1+)
-- `json_validate()` (PHP 8.3+)
-- Constantes de clase tipadas con `final const Tipo` (PHP 8.3+)
-- Llamada dinámica de constantes de clase con `Foo::{$bar}` (PHP 8.3+)
+### Características de PHP 8.3+ prohibidas en este módulo
+Para garantizar total compatibilidad con PHP 8.2.0:
+- Función `json_validate()` (PHP 8.3+)
+- Constantes de clase tipadas (`const string FOO = 'bar'`) (PHP 8.3+)
+- Acceso dinámico a constantes de clase (`ClassName::{$var}`) (PHP 8.3+)
+- Atributo `#[Override]` (PHP 8.3+)
+- Clases anónimas `readonly` (PHP 8.3+)
 
-Construcciones PHP 8.2 que SÍ podemos usar: propiedades `readonly`, enums, fibras, tipos de intersección, tipo de retorno `never`, sintaxis callable de primera clase.
-
-Construcciones PHP 8.2 que SÍ podemos usar: propiedades `readonly`, enums, fibras, tipos de intersección, tipo de retorno `never`, sintaxis callable de primera clase.
+### Características de PHP 8.2 permitidas y soportadas
+- Propiedades `readonly` y clases `readonly` (PHP 8.2+)
+- Enums (PHP 8.1+)
+- Tipos en Forma Normal Disyuntiva (DNF) (PHP 8.2+)
+- Tipos autónomos `true`, `false` y `null` (PHP 8.2+)
+- Sintaxis callable de primera clase (PHP 8.1+)
