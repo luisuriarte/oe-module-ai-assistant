@@ -16,11 +16,19 @@
 
 namespace OpenEMR\Modules\AiAssistant\EventListener;
 
+use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Events\Core\ScriptFilterEvent;
 
 class SoapFormScriptListener
 {
+    private SystemLogger $logger;
+
+    public function __construct()
+    {
+        $this->logger = new SystemLogger();
+    }
+
     /**
      * Called when ScriptFilterEvent fires (once per page, during setupHeader()).
      *
@@ -29,29 +37,52 @@ class SoapFormScriptListener
      */
     public function onScriptFilter(ScriptFilterEvent $event): void
     {
+        $pageName   = $event->getPageName();
         $scriptName = $event->getContextArgument(
             ScriptFilterEvent::CONTEXT_ARGUMENT_SCRIPT_NAME
         ) ?? '';
 
-        // Match both new.php (create) and view.php (edit existing encounter)
-        if (!$this->isSoapFormPage($scriptName)) {
+        $matched = $this->isSoapFormPage($scriptName);
+
+        // DIAG-3: log every event received, regardless of match
+        $this->logger->error(
+            '[AiAssistant DIAG-3] ScriptFilterEvent received'
+            . ' | pageName=' . $pageName
+            . ' | scriptName=' . $scriptName
+            . ' | matched=' . ($matched ? 'YES' : 'NO')
+        );
+
+        if (!$matched) {
             return;
         }
 
-        $webRoot = OEGlobalsBag::getInstance()->getWebRoot();
-        $moduleBase = $webRoot
-            . '/interface/modules/custom_modules/oe-module-ai-assistant/public/assets/js';
+        $webRoot    = OEGlobalsBag::getInstance()->getWebRoot();
+        $scriptUrl  = $webRoot
+            . '/interface/modules/custom_modules/oe-module-ai-assistant/public/assets/js/ai-dictation.js';
 
-        $scripts = $event->getScripts();
-        $scripts[] = $moduleBase . '/ai-dictation.js';
+        $scripts   = $event->getScripts();
+        $scripts[] = $scriptUrl;
         $event->setScripts($scripts);
+
+        // DIAG-4: log the script URL that was actually injected
+        $this->logger->error(
+            '[AiAssistant DIAG-4] Script injected'
+            . ' | url=' . $scriptUrl
+            . ' | pageName=' . $pageName
+            . ' | scriptName=' . $scriptName
+        );
     }
 
     /**
      * Returns true if the current page is the SOAP form (new or view action).
      *
-     * Uses str_contains() on the full server path — avoids false positives from
-     * basename matching when other forms happen to be named new.php or view.php.
+     * Matching is performed on the FULL server-side script path stored in
+     * CONTEXT_ARGUMENT_SCRIPT_NAME — not on the basename — to avoid false
+     * positives from other forms also named new.php or view.php.
+     *
+     * In OpenEMR 8.2.0/8.4.1, Header::setupHeader() sets:
+     *   pageName  = basename($_SERVER['SCRIPT_NAME'])   → "new.php" or "view.php"
+     *   scriptName = $_SERVER['SCRIPT_NAME']            → "/interface/forms/soap/new.php"
      */
     private function isSoapFormPage(string $scriptName): bool
     {
