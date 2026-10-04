@@ -23,6 +23,7 @@ use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
+use OpenEMR\Modules\AiAssistant\Transcription\TranscriptionClient;
 
 class SettingsController
 {
@@ -150,4 +151,46 @@ class SettingsController
         $templatePath = __DIR__ . '/../../templates/settings.php';
         include $templatePath;
     }
+
+    /**
+     * AJAX endpoint: tests connection to the Whisper transcription server.
+     * Enforces ai_assistant/admin ACL and CSRF token.
+     */
+    public function testWhisper(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
+            return;
+        }
+
+        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
+        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
+            return;
+        }
+
+        $rawUrl = trim((string) ($_POST['whisper_url'] ?? ''));
+        if ($rawUrl === '') {
+            $rawUrl = $this->settings->get('whisper_url', 'http://127.0.0.1:8178');
+        }
+
+        try {
+            $client = new TranscriptionClient($rawUrl, 5);
+            $result = $client->testConnection(4);
+            http_response_code(200);
+            echo json_encode($result);
+        } catch (\InvalidArgumentException $e) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    }
 }
+

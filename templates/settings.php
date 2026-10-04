@@ -106,13 +106,13 @@
                     <label for="whisper_max_audio_sec"><?php echo xlt('Max audio length (s)'); ?></label>
                     <input type="number" class="form-control" id="whisper_max_audio_sec" name="whisper_max_audio_sec"
                            min="30" max="600"
-                           value="<?php echo attr($current['whisper_max_audio_sec'] ?? '300'); ?>">
+                           value="<?php echo attr($current['whisper_max_audio_sec'] ?? '180'); ?>">
                 </div>
                 <div class="col-12">
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-test-whisper">
                         <?php echo xlt('Test Whisper Connection'); ?>
                     </button>
-                    <span id="whisper-test-result" class="ml-2"></span>
+                    <span id="whisper-test-result" class="ml-2 font-weight-bold"></span>
                 </div>
             </div>
         </div>
@@ -334,11 +334,55 @@
         </div>
 
     </form>
+
+    <!-- ==================== ADMIN TEST BENCH (WHISPER) ==================== -->
+    <div class="ai-settings-section card border-info mb-4">
+        <div class="card-header bg-light text-dark font-weight-bold d-flex justify-content-between align-items-center">
+            <span><?php echo xlt('Admin Test Bench — Whisper Audio Transcription'); ?></span>
+            <span class="badge badge-info"><?php echo xlt('Upload-only (Test mode)'); ?></span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                <?php echo xlt('Upload an audio file to test end-to-end Whisper transcription through the production validation pipeline, host-shared flock lock, and polling worker. Audited with patient_id = 0, encounter_id = 0 and flagged as test.'); ?>
+            </p>
+            <div class="row align-items-center mb-3">
+                <div class="col-md-6 form-group mb-md-0">
+                    <input type="file" class="form-control-file border p-1 rounded w-100" id="test_audio_file"
+                           accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm">
+                </div>
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-sm btn-info" id="btn-run-test-transcribe">
+                        <?php echo xlt('Transcribe Test Audio'); ?>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary ml-2 d-none" id="btn-cancel-test-transcribe">
+                        <?php echo xlt('Cancel'); ?>
+                    </button>
+                </div>
+            </div>
+
+            <div id="test-transcribe-feedback" class="mb-3 d-none">
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm text-info mr-2 d-none" id="test-transcribe-spinner" role="status">
+                        <span class="sr-only"><?php echo xlt('Processing...'); ?></span>
+                    </div>
+                    <span id="test-transcribe-status-text" class="font-weight-bold"></span>
+                </div>
+            </div>
+
+            <div class="form-group mb-0">
+                <label for="test_transcribe_output"><strong><?php echo xlt('Transcript Output:'); ?></strong></label>
+                <textarea class="form-control" id="test_transcribe_output" rows="4" readonly
+                          placeholder="<?php echo attr(xlt('Transcript will appear here once processing completes...')); ?>"></textarea>
+                <small id="test_transcribe_meta" class="form-text text-muted mt-1"></small>
+            </div>
+        </div>
+    </div>
+
 </div><!-- /container-fluid -->
 
 <script>
-// Show/hide provider fieldsets based on active provider selection
 (function () {
+    // 1. Show/hide provider fieldsets based on active provider selection
     const select = document.getElementById('active_provider');
     function toggle() {
         ['openai', 'anthropic', 'gemini'].forEach(function (p) {
@@ -346,20 +390,214 @@
             if (el) el.style.display = (select.value === p) ? '' : 'none';
         });
     }
-    select.addEventListener('change', toggle);
-    toggle();
+    if (select) {
+        select.addEventListener('change', toggle);
+        toggle();
+    }
 
-    // Whisper test button (placeholder — AJAX endpoint added in M2)
-    document.getElementById('btn-test-whisper').addEventListener('click', function () {
-        document.getElementById('whisper-test-result').textContent = '<?php echo xlt('(available in M2)'); ?>';
-    });
+    const webRoot = <?php echo json_encode($webRoot); ?>;
+    const csrfToken = <?php echo json_encode($csrf); ?>;
+    const publicEndpoint = webRoot + '/interface/modules/custom_modules/oe-module-ai-assistant/public/index.php';
 
-    // Provider test buttons (placeholder — AJAX endpoint added in M3)
+    // 2. Test Whisper Connection
+    const btnTestWhisper = document.getElementById('btn-test-whisper');
+    const whisperResult = document.getElementById('whisper-test-result');
+    if (btnTestWhisper && whisperResult) {
+        btnTestWhisper.addEventListener('click', function () {
+            const whisperUrl = (document.getElementById('whisper_url') ? document.getElementById('whisper_url').value : '').trim();
+            whisperResult.className = 'ml-2 text-muted';
+            whisperResult.textContent = '<?php echo xlt('Testing connection...'); ?>';
+            btnTestWhisper.disabled = true;
+
+            const formData = new FormData();
+            formData.append('csrf_token_form', csrfToken);
+            formData.append('whisper_url', whisperUrl);
+
+            fetch(publicEndpoint + '?action=test_whisper', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function (res) {
+                return res.json().then(function (data) { return { status: res.status, data: data }; });
+            })
+            .then(function (resObj) {
+                btnTestWhisper.disabled = false;
+                const data = resObj.data;
+                if (data.ok) {
+                    whisperResult.className = 'ml-2 text-success font-weight-bold';
+                    whisperResult.textContent = '<?php echo xlt('Connection successful'); ?> (' + data.latency_ms + 'ms, HTTP ' + data.status_code + ')';
+                } else {
+                    whisperResult.className = 'ml-2 text-danger font-weight-bold';
+                    whisperResult.textContent = '<?php echo xlt('Connection failed:'); ?> ' + (data.error || ('HTTP ' + resObj.status));
+                }
+            })
+            .catch(function (err) {
+                btnTestWhisper.disabled = false;
+                whisperResult.className = 'ml-2 text-danger font-weight-bold';
+                whisperResult.textContent = '<?php echo xlt('Request error:'); ?> ' + err.message;
+            });
+        });
+    }
+
+    // 3. Admin Test Bench (Upload-only test audio transcription)
+    const btnRunTest = document.getElementById('btn-run-test-transcribe');
+    const btnCancelTest = document.getElementById('btn-cancel-test-transcribe');
+    const fileInput = document.getElementById('test_audio_file');
+    const feedbackDiv = document.getElementById('test-transcribe-feedback');
+    const spinner = document.getElementById('test-transcribe-spinner');
+    const statusText = document.getElementById('test-transcribe-status-text');
+    const outputArea = document.getElementById('test_transcribe_output');
+    const metaText = document.getElementById('test_transcribe_meta');
+
+    let pollTimer = null;
+    let pollStart = 0;
+
+    function stopTestBenchPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        if (spinner) spinner.classList.add('d-none');
+        if (btnCancelTest) btnCancelTest.classList.add('d-none');
+        if (btnRunTest) btnRunTest.disabled = false;
+    }
+
+    if (btnCancelTest) {
+        btnCancelTest.addEventListener('click', function () {
+            stopTestBenchPolling();
+            if (statusText) {
+                statusText.className = 'text-warning font-weight-bold';
+                statusText.textContent = '<?php echo xlt('Polling cancelled by user.'); ?>';
+            }
+        });
+    }
+
+    if (btnRunTest && fileInput) {
+        btnRunTest.addEventListener('click', function () {
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('<?php echo xlt('Please select an audio file first.'); ?>');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            outputArea.value = '';
+            metaText.textContent = '';
+            feedbackDiv.classList.remove('d-none');
+            spinner.classList.remove('d-none');
+            btnCancelTest.classList.remove('d-none');
+            statusText.className = 'text-info font-weight-bold';
+            statusText.textContent = '<?php echo xlt('Submitting test audio...'); ?>';
+            btnRunTest.disabled = true;
+
+            const formData = new FormData();
+            formData.append('csrf_token_form', csrfToken);
+            formData.append('test_mode', '1');
+            formData.append('audio', file);
+
+            fetch(publicEndpoint + '?action=transcribe_submit', {
+                method: 'POST',
+                body: formData
+            })
+            .then(function (res) {
+                return res.json().then(function (data) { return { status: res.status, data: data }; });
+            })
+            .then(function (resObj) {
+                const status = resObj.status;
+                const data = resObj.data;
+
+                if (status === 429) {
+                    stopTestBenchPolling();
+                    statusText.className = 'text-danger font-weight-bold';
+                    statusText.textContent = '<?php echo xlt('Server busy (HTTP 429): transcription lock currently held by another worker.'); ?>';
+                    return;
+                }
+
+                if (status !== 200 && status !== 202) {
+                    stopTestBenchPolling();
+                    statusText.className = 'text-danger font-weight-bold';
+                    statusText.textContent = '<?php echo xlt('Error:'); ?> ' + (data.error || ('HTTP ' + status));
+                    return;
+                }
+
+                const jobId = data.job_id;
+                if (!jobId) {
+                    stopTestBenchPolling();
+                    statusText.className = 'text-danger font-weight-bold';
+                    statusText.textContent = '<?php echo xlt('Invalid response: missing job_id'); ?>';
+                    return;
+                }
+
+                // If already completed synchronously
+                if (data.status === 'completed' && data.text !== undefined) {
+                    stopTestBenchPolling();
+                    statusText.className = 'text-success font-weight-bold';
+                    statusText.textContent = '<?php echo xlt('Transcription completed!'); ?>';
+                    outputArea.value = data.text;
+                    metaText.textContent = 'Latency: ' + (data.duration_ms || 0) + ' ms | Job: ' + jobId;
+                    return;
+                }
+
+                // Begin Polling
+                pollStart = Date.now();
+                statusText.className = 'text-info font-weight-bold';
+                statusText.textContent = '<?php echo xlt('Processing audio in background...'); ?> (0s)';
+
+                pollTimer = setInterval(function () {
+                    const elapsedSec = Math.round((Date.now() - pollStart) / 1000);
+                    statusText.textContent = '<?php echo xlt('Processing audio in background...'); ?> (' + elapsedSec + 's)';
+
+                    fetch(publicEndpoint + '?action=transcribe_status&job_id=' + encodeURIComponent(jobId))
+                    .then(function (pRes) {
+                        return pRes.json().then(function (pData) { return { status: pRes.status, data: pData }; });
+                    })
+                    .then(function (pResObj) {
+                        const pStatus = pResObj.status;
+                        const pData = pResObj.data;
+
+                        if (pStatus === 404) {
+                            stopTestBenchPolling();
+                            statusText.className = 'text-danger font-weight-bold';
+                            statusText.textContent = '<?php echo xlt('Job expired or not found.'); ?>';
+                            return;
+                        }
+
+                        if (pData.status === 'completed') {
+                            stopTestBenchPolling();
+                            statusText.className = 'text-success font-weight-bold';
+                            statusText.textContent = '<?php echo xlt('Transcription completed!'); ?>';
+                            outputArea.value = pData.text || '';
+                            metaText.textContent = 'Duration: ' + (pData.duration_ms || 0) + ' ms | Job: ' + jobId;
+                        } else if (pData.status === 'error') {
+                            stopTestBenchPolling();
+                            statusText.className = 'text-danger font-weight-bold';
+                            statusText.textContent = '<?php echo xlt('Transcription failed:'); ?> ' + (pData.error_code || 'unknown error');
+                        }
+                    })
+                    .catch(function (pollErr) {
+                        if (elapsedSec > 180) {
+                            stopTestBenchPolling();
+                            statusText.className = 'text-danger font-weight-bold';
+                            statusText.textContent = '<?php echo xlt('Polling timed out.'); ?>';
+                        }
+                    });
+                }, 1000);
+            })
+            .catch(function (err) {
+                stopTestBenchPolling();
+                statusText.className = 'text-danger font-weight-bold';
+                statusText.textContent = '<?php echo xlt('Submission error:'); ?> ' + err.message;
+            });
+        });
+    }
+
+    // 4. Provider test buttons (placeholder — AJAX endpoint added in M3)
     document.querySelectorAll('.btn-test-provider').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const p = btn.dataset.provider;
-            document.querySelector('.provider-test-result[data-provider="' + p + '"]').textContent =
-                '<?php echo xlt('(available in M3)'); ?>';
+            const resEl = document.querySelector('.provider-test-result[data-provider="' + p + '"]');
+            if (resEl) {
+                resEl.textContent = '<?php echo xlt('(available in M3)'); ?>';
+            }
         });
     });
 }());

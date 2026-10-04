@@ -199,7 +199,7 @@ class SettingsManager
             // Whisper server
             'whisper_url'            => 'http://127.0.0.1:8178',
             'whisper_timeout'        => '60',
-            'whisper_max_audio_sec'  => '300',  // 5 minutes
+            'whisper_max_audio_sec'  => '180',  // 3 minutes (default per spec)
 
             // Provider
             'active_provider'        => 'openai',

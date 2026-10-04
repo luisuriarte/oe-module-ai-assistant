@@ -22,6 +22,7 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Session\SessionUtil;
 use OpenEMR\Modules\AiAssistant\Controller\SettingsController;
+use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
 
 // --- Session guard ---
 SessionUtil::coreSessionStart();
@@ -34,7 +35,10 @@ $action = $_GET['action'] ?? 'settings';
 
 // Route table: action => [controller_class, method, acl_section, acl_object]
 $routes = [
-    'settings' => [SettingsController::class, 'dispatch', 'ai_assistant', 'admin'],
+    'settings'          => [SettingsController::class, 'dispatch', 'ai_assistant', 'admin'],
+    'test_whisper'      => [SettingsController::class, 'testWhisper', 'ai_assistant', 'admin'],
+    'transcribe_submit' => [TranscribeController::class, 'submit', 'ai_assistant', 'use'],
+    'transcribe_status' => [TranscribeController::class, 'status', 'ai_assistant', 'use'],
 ];
 
 if (!isset($routes[$action])) {
@@ -44,10 +48,14 @@ if (!isset($routes[$action])) {
 
 [$class, $method, $aclSection, $aclObject] = $routes[$action];
 
-// ACL check
+// ACL check: allows 'admin' as an override for 'use' routes
 if (!AclMain::aclCheckCore($aclSection, $aclObject)) {
-    http_response_code(403);
-    exit(json_encode(['error' => xlt('Access denied.')]));
+    if ($aclObject === 'use' && AclMain::aclCheckCore($aclSection, 'admin')) {
+        // admin permitted
+    } else {
+        http_response_code(403);
+        exit(json_encode(['error' => xlt('Access denied.')]));
+    }
 }
 
 $controller = new $class();
