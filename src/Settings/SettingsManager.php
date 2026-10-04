@@ -161,6 +161,35 @@ class SettingsManager
     }
 
     /**
+     * Returns true if the module has minimum required configuration:
+     * - Admin consent has been acknowledged.
+     * - An API key exists for the active provider.
+     */
+    public function isConfigured(): bool
+    {
+        try {
+            if (!$this->isConsentGiven()) {
+                return false;
+            }
+
+            $provider = $this->getActiveProvider();
+            $keyMap = [
+                'openai'    => 'openai_api_key',
+                'anthropic' => 'anthropic_api_key',
+                'gemini'    => 'gemini_api_key',
+            ];
+
+            if (isset($keyMap[$provider])) {
+                return $this->hasEncryptedValue($keyMap[$provider]);
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Returns default values for all known settings keys.
      * Used to pre-populate the settings form on first run.
      */

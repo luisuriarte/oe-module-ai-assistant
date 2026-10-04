@@ -15,8 +15,11 @@ PHP mínimo: **8.2.0**
 | `EncounterMenuEvent` | `OpenEMR\Events\Encounter` | ✅ | ✅ | Idéntico |
 | `MenuEvent` | `OpenEMR\Menu` | ✅ | ✅ | Idéntico |
 | `PatientMenuEvent` | `OpenEMR\Menu` | ✅ | ✅ | Idéntico |
-| `Header::setupHeader()` | `OpenEMR\Core` | ✅ | ✅ | Dispara `ScriptFilterEvent`; `pageName = basename($_SERVER[SCRIPT_NAME])` |
-| Ruta del template SOAP | n/a | ✅ | ✅ | `interface/forms/soap/templates/soap_form.twig` idéntico en ambas versiones |
+| `Header::setupHeader()` | `OpenEMR\Core` | ✅ | ✅ | Dispara `ScriptFilterEvent`; `pageName = basename($_SERVER['SCRIPT_NAME'])` del entry script HTTP |
+| Entry script para nota nueva SOAP | n/a | ✅ | ✅ | `encounter/load_form.php?formname=soap` → `pageName="load_form.php"` (**no** `new.php`) |
+| Entry script para ver/editar SOAP | n/a | ✅ | ✅ | `encounter/view_form.php?formname=soap&id=N` → `pageName="view_form.php"` (**no** `view.php`) |
+| Ruta del template SOAP | n/a | ✅ | ✅ | `interface/forms/soap/templates/soap_form.twig` — cargado vía FormLocator, no directamente |
+| Parámetro GET `formname` en SOAP | n/a | ✅ | ✅ | Debe ser exactamente `"soap"`; validado con `/^[a-zA-Z0-9_-]{1,64}$/` antes de enrutar |
 | Campo SOAP `subjective` | n/a | ✅ | ✅ | `<textarea name="subjective">` idéntico |
 | Campo SOAP `objective` | n/a | ✅ | ✅ | `<textarea name="objective">` idéntico |
 | Campo SOAP `assessment` | n/a | ✅ | ✅ | `<textarea name="assessment">` idéntico |

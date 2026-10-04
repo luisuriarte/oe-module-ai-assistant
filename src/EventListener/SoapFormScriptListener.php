@@ -34,9 +34,11 @@
 
 namespace OpenEMR\Modules\AiAssistant\EventListener;
 
+use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Events\Core\ScriptFilterEvent;
+use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class SoapFormScriptListener
 {
@@ -53,10 +55,12 @@ class SoapFormScriptListener
     private const SOAP_FORMNAME = 'soap';
 
     private SystemLogger $logger;
+    private SettingsManager $settings;
 
     public function __construct()
     {
-        $this->logger = new SystemLogger();
+        $this->logger   = new SystemLogger();
+        $this->settings = new SettingsManager();
     }
 
     /**
@@ -64,27 +68,21 @@ class SoapFormScriptListener
      */
     public function onScriptFilter(ScriptFilterEvent $event): void
     {
-        $pageName   = $event->getPageName();
-        $scriptName = $event->getContextArgument(
-            ScriptFilterEvent::CONTEXT_ARGUMENT_SCRIPT_NAME
-        ) ?? '';
-
-        // Read formname from GET safely.
-        // It is validated here ONLY for routing; never used for file access or SQL.
+        $pageName = $event->getPageName();
         $formName = $this->safeGetFormname();
 
-        $matched = $this->isSoapFormPage($pageName, $formName);
+        // Check 1: Must be the SOAP form page (new or view)
+        if (!$this->isSoapFormPage($pageName, $formName)) {
+            return;
+        }
 
-        // DIAG-3: log every event (pageName, scriptName, formname, match result)
-        $this->logger->error(
-            '[AiAssistant DIAG-3] ScriptFilterEvent received'
-            . ' | pageName=' . $pageName
-            . ' | scriptName=' . $scriptName
-            . ' | formname=' . $formName
-            . ' | matched=' . ($matched ? 'YES' : 'NO')
-        );
+        // Check 2: User must hold the 'use' permission
+        if (!AclMain::aclCheckCore('ai_assistant', 'use')) {
+            return;
+        }
 
-        if (!$matched) {
+        // Check 3: Module must be configured (consent acknowledged, active provider key saved)
+        if (!$this->settings->isConfigured()) {
             return;
         }
 
@@ -92,25 +90,20 @@ class SoapFormScriptListener
 
         $scripts = $event->getScripts();
         if (in_array($scriptUrl, $scripts, true)) {
-            $this->logger->error(
-                '[AiAssistant DIAG-4] Script already present in event; skipping duplicate injection'
-                . ' | url=' . $scriptUrl
-                . ' | pageName=' . $pageName
-                . ' | formname=' . $formName
-            );
             return;
         }
 
         $scripts[] = $scriptUrl;
         $event->setScripts($scripts);
 
-        // DIAG-4: log when a script is actually added
-        $this->logger->error(
-            '[AiAssistant DIAG-4] Script injected'
-            . ' | url=' . $scriptUrl
-            . ' | pageName=' . $pageName
-            . ' | formname=' . $formName
-        );
+        if ($this->isDebugEnabled()) {
+            $this->logger->debug(
+                '[AiAssistant] Script injected'
+                . ' | url=' . $scriptUrl
+                . ' | pageName=' . $pageName
+                . ' | formname=' . $formName
+            );
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -184,5 +177,17 @@ class SoapFormScriptListener
             return '';
         }
         return $raw;
+    }
+
+    /**
+     * Checks if debug logging is explicitly enabled in settings.
+     */
+    private function isDebugEnabled(): bool
+    {
+        try {
+            return $this->settings->get('debug_log_content', '0') === '1';
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }
