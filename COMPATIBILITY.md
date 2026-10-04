@@ -3,7 +3,7 @@
 Minimum supported OpenEMR: **8.2.0**  
 PHP minimum: **8.2.0**
 
-Last updated: M1
+Last updated: M5
 
 ## Class / Method / Event Compatibility
 
@@ -59,6 +59,11 @@ Last updated: M1
 | `AclMain::aclCheckCore('patients', 'med')` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical. Native patient clinical chart access check |
 | `lists` schema (`type='allergy'`, `activity=1`) | OpenEMR DB | ✅ | ✅ | Universal source of truth for active allergies in both 8.2.0 and 8.4.1 |
 | `forms.deleted = 0` check | OpenEMR DB | ✅ | ✅ | Soft-delete convention used across all clinical encounter forms |
+| `SoapFormScriptListener` | `OpenEMR\Modules\AiAssistant\EventListener` | ✅ | ✅ | Listens to `ScriptFilterEvent` & `StyleFilterEvent` in `load_form.php` and `view_form.php` |
+| Native SOAP textareas | DOM (`subjective`, `objective`, `assessment`, `plan`) | ✅ | ✅ | Form elements populated via `.value` / `.textContent` only (no HTML injection) |
+| `SoapDraftGenerator` | `OpenEMR\Modules\AiAssistant\Draft` | ✅ | ✅ | Schema validation, single-retry correction, groundedness & prompt-injection defense |
+| `DraftController` (`action=soap_draft`) | `OpenEMR\Modules\AiAssistant\Controller` | ✅ | ✅ | Session, CSRF, ACL use, patient access, cross-patient check, 60s timeout, metadata-only audit |
+| `MediaRecorder` audio recording | Web API | ✅ | ✅ | Safari `audio/mp4;codecs=mp4a.40.2` & Chrome/Firefox `audio/webm;codecs=opus` fallback |
 
 ## Capability Detection Pattern
 

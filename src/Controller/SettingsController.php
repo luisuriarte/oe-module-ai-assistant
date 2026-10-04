@@ -391,11 +391,22 @@ class SettingsController
         $start   = microtime(true);
         $builder = new \OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder($this->settings);
 
+        ob_start();
         try {
             $contextResult = $builder->buildContext($pid);
             $contextText   = $contextResult['text'];
             $leakCheck     = $builder->leakCheck($contextText, $pid);
             $durationMs    = (int) round((microtime(true) - $start) * 1000);
+            $noise         = ob_get_clean();
+
+            if ($noise !== '' && (str_contains($noise, 'SQL Statement Error') || str_contains($noise, 'Fatal error'))) {
+                http_response_code(500);
+                echo json_encode([
+                    'ok'    => false,
+                    'error' => trim(strip_tags($noise)),
+                ]);
+                return;
+            }
 
             // Audit record: patient_id is logged, but NO CLINICAL CONTENT is saved.
             $audit = new AuditLogger();
@@ -424,6 +435,9 @@ class SettingsController
                 'duration_ms'      => $durationMs,
             ]);
         } catch (\Throwable $e) {
+            if (ob_get_level() > 0) {
+                ob_end_clean();
+            }
             $durationMs = (int) round((microtime(true) - $start) * 1000);
             $audit = new AuditLogger();
             $audit->log(

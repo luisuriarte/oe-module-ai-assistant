@@ -147,7 +147,7 @@ class PatientContextBuilderTest
             // 1. Demographics query
             if (str_contains($cleanSql, 'from patient_data')) {
                 // If this is queryPatientIdentifiers for leakCheck, allow reading identifiers:
-                if (str_contains($cleanSql, 'phone_biz') || str_contains($cleanSql, 'phone_contact')) {
+                if (str_contains($cleanSql, 'phone_cell')) {
                     $pid = (int) ($params[0] ?? 0);
                     if ($pid === 42) {
                         return [

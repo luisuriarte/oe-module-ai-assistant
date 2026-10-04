@@ -106,6 +106,34 @@ class SoapFormScriptListener
         }
     }
 
+    /**
+     * Called for every StyleFilterEvent to inject module CSS into the SOAP form.
+     */
+    public function onStyleFilter(\OpenEMR\Events\Core\StyleFilterEvent $event): void
+    {
+        $pageName = $event->getPageName();
+        $formName = $this->safeGetFormname();
+
+        if (!$this->isSoapFormPage($pageName, $formName)) {
+            return;
+        }
+
+        if (!AclMain::aclCheckCore('ai_assistant', 'use')) {
+            return;
+        }
+
+        if (!$this->settings->isConfigured()) {
+            return;
+        }
+
+        $styleUrl = $this->buildAssetUrl('public/assets/css/ai-assistant.css');
+        $styles   = $event->getStyles();
+        if (!in_array($styleUrl, $styles, true)) {
+            $styles[] = $styleUrl;
+            $event->setStyles($styles);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------

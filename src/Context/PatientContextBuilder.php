@@ -176,9 +176,12 @@ class PatientContextBuilder
             $text
         );
 
-        // 2. Redact Argentine DNI with dots (e.g. 34.567.890)
+        // Comprehensive list of medical dose, measurement, and lab units to protect from redaction
+        $clinicalUnits = '(?:UI|IU|U|mg|mcg|µg|ug|g|gr|grs|gramos?|kg|kgs|kilos?|ml|mL|l|lt|litros?|cc|mEq|mmol|dL|mol|gotas?|puffs?|ampollas?|comprimidos?|comp|capsulas?|tabletas?|sobres?|mmHg|bpm|lpm|rpm|°C|°F|%|fl|pg|U\/L|UI\/L|horas?|hs|dias?|días?|veces|cada)';
+
+        // 2. Redact Argentine DNI with dots (e.g. 34.567.890), protecting clinical dosing (e.g. 2.400.000 UI)
         $text = preg_replace(
-            '/\b\d{1,2}\.\d{3}\.\d{3}\b/',
+            '/\b\d{1,2}\.\d{3}\.\d{3}\b(?!\s*' . $clinicalUnits . '\b)(?![\/])/i',
             '[REDACTED-ID]',
             $text
         );
@@ -191,15 +194,17 @@ class PatientContextBuilder
         );
 
         // 4. Redact Phone numbers (international, Argentine 11-xxxx-xxxx, US (xxx) xxx-xxxx, etc.)
+        // Protect numbers followed by measurement units or slashes (e.g. 120/80)
         $text = preg_replace(
-            '/(?:\+?\d{1,3}[-\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-\s]?\d{3,4}\b/',
+            '/(?:\+?\d{1,3}[-\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-\s]?\d{3,4}\b(?!\s*' . $clinicalUnits . '\b)(?![\/])/i',
             '[REDACTED-PHONE]',
             $text
         );
 
-        // 5. Redact Sequences of 7 to 11 digits (National IDs, CUIL/CUIT, SSNs, passports)
+        // 5. Redact Sequences of 7 to 11 digits (National IDs, CUIL/CUIT, passports)
+        // Must NOT match clinical numbers followed by units or dates delimited by - or /
         $text = preg_replace(
-            '/\b\d{7,11}\b/',
+            '/(?<![\/-])\b\d{7,11}\b(?!\s*' . $clinicalUnits . '\b)(?![\/-])/i',
             '[REDACTED-ID]',
             $text
         );
@@ -311,7 +316,7 @@ class PatientContextBuilder
      */
     private function extractAllergies(int $pid): string
     {
-        $sql = "SELECT `title`, `comments`, `severity`
+        $sql = "SELECT `title`, `comments`
                 FROM `lists`
                 WHERE `pid` = ?
                   AND `type` = 'allergy'
@@ -391,7 +396,6 @@ class PatientContextBuilder
                   FROM `prescriptions`
                   WHERE `patient_id` = ?
                     AND `active` = 1
-                    AND (`date_modified` IS NULL OR `date_modified` = '' OR `date_modified` <= NOW())
                   ORDER BY `date_added` DESC";
 
         $rowsRx = $this->query($sqlRx, [$pid]);
@@ -578,14 +582,15 @@ class PatientContextBuilder
     private function extractSoapEncounters(int $pid, int $limit): array
     {
         // 1. Fetch recent encounters for this patient
+        $intLimit = (int) ($limit * 2);
         $sql = "SELECT fe.`id`, fe.`date`, fe.`encounter`, fe.`sensitivity`
                 FROM `form_encounter` fe
                 JOIN `forms` f ON (f.form_id = fe.id AND f.formdir = 'encounter' AND f.deleted = 0)
                 WHERE fe.`pid` = ?
                 ORDER BY fe.`date` DESC
-                LIMIT ?";
+                LIMIT {$intLimit}";
 
-        $encounters = $this->query($sql, [$pid, $limit * 2]); // Fetch buffer in case some are sensitive
+        $encounters = $this->query($sql, [$pid]); // Fetch buffer in case some are sensitive
         if (empty($encounters)) {
             return [];
         }
@@ -817,7 +822,7 @@ class PatientContextBuilder
     private function queryPatientIdentifiers(int $pid): array
     {
         $sql = "SELECT `fname`, `lname`, `mname`, `DOB`, `phone_cell`, `phone_home`,
-                       `phone_biz`, `phone_contact`, `email`, `ss`
+                       `email`, `ss`
                 FROM `patient_data`
                 WHERE `pid` = ?
                 LIMIT 1";

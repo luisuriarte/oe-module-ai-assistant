@@ -1,8 +1,299 @@
 /**
- * ai-assistant.css — Styles for the AI Dictation control and Chat panel.
+ * ai-assistant.css — Styles for OpenEMR AI Assistant (Layer 1 UI: SOAP Dictation & Drafts).
  *
- * Placeholder. Full implementation in M5/M6.
+ * Designed with modern clinical UI aesthetics:
+ *   - Clean medical card layouts, responsive controls, clear micro-animations.
+ *   - Visual pulse for live microphone recording.
+ *   - Unobtrusive draft review banner and verification warning badges.
  *
  * @package   OpenEMR
  * @subpackage AiAssistant
  */
+
+/* ==================== Dictation Bar Container ==================== */
+.oe-ai-dictation-container {
+    margin: 12px 0 16px 0;
+    padding: 14px 16px;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    font-family: inherit;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.oe-ai-dictation-container:hover {
+    border-color: #9ca3af;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.oe-ai-dictation-container.recording {
+    border-color: #ef4444;
+    background: #fffafa;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+/* ==================== Toolbar Controls ==================== */
+.oe-ai-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.oe-ai-left-group, .oe-ai-right-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Title & Badge */
+.oe-ai-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #1f2937;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.oe-ai-title i {
+    color: #2563eb;
+}
+
+.oe-ai-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 12px;
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+/* Action Buttons */
+.oe-ai-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+    outline: none;
+    line-height: 1.4;
+}
+
+.oe-ai-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.oe-ai-btn-record {
+    background-color: #dc2626;
+    color: #ffffff;
+    border-color: #b91c1c;
+}
+.oe-ai-btn-record:hover:not(:disabled) {
+    background-color: #b91c1c;
+}
+
+.oe-ai-btn-stop {
+    background-color: #4b5563;
+    color: #ffffff;
+    border-color: #374151;
+}
+.oe-ai-btn-stop:hover:not(:disabled) {
+    background-color: #374151;
+}
+
+.oe-ai-btn-discard {
+    background-color: #f3f4f6;
+    color: #4b5563;
+    border-color: #d1d5db;
+}
+.oe-ai-btn-discard:hover:not(:disabled) {
+    background-color: #e5e7eb;
+    color: #1f2937;
+}
+
+.oe-ai-btn-generate {
+    background-color: #2563eb;
+    color: #ffffff;
+    border-color: #1d4ed8;
+}
+.oe-ai-btn-generate:hover:not(:disabled) {
+    background-color: #1d4ed8;
+}
+
+/* Pulse animation on record */
+@keyframes oeAiPulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+    }
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+.oe-ai-pulsing-dot {
+    width: 10px;
+    height: 10px;
+    background-color: #ef4444;
+    border-radius: 50%;
+    display: inline-block;
+    animation: oeAiPulse 1.4s infinite;
+}
+
+/* Timer display */
+.oe-ai-timer {
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #374151;
+    background: #f3f4f6;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+}
+
+.oe-ai-status-text {
+    font-size: 0.85rem;
+    color: #6b7280;
+    font-style: italic;
+}
+
+/* ==================== Transcript Drawer ==================== */
+.oe-ai-transcript-panel {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.oe-ai-transcript-panel label {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #374151;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.oe-ai-transcript-textarea {
+    width: 100%;
+    min-height: 80px;
+    max-height: 200px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    resize: vertical;
+    background-color: #f9fafb;
+    color: #111827;
+}
+
+.oe-ai-transcript-textarea:focus {
+    background-color: #ffffff;
+    border-color: #2563eb;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+/* ==================== Review Banner ==================== */
+.oe-ai-review-banner {
+    margin: 10px 0;
+    padding: 10px 14px;
+    background-color: #fef3c7;
+    border-left: 4px solid #f59e0b;
+    border-radius: 4px;
+    color: #92400e;
+    font-size: 0.88rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.oe-ai-review-banner strong {
+    font-weight: 700;
+}
+
+.oe-ai-verify-badge {
+    background-color: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.75rem;
+}
+
+/* Highlighted Verify markers inside native textarea notice */
+.oe-ai-verify-warning {
+    margin-top: 6px;
+    font-size: 0.82rem;
+    color: #b91c1c;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ==================== Modal Dialog ==================== */
+.oe-ai-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(17, 24, 39, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+}
+
+.oe-ai-modal-card {
+    background: #ffffff;
+    width: 90%;
+    max-width: 480px;
+    border-radius: 8px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    overflow: hidden;
+}
+
+.oe-ai-modal-header {
+    padding: 14px 18px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    font-weight: 700;
+    font-size: 1rem;
+    color: #111827;
+}
+
+.oe-ai-modal-body {
+    padding: 16px 18px;
+    font-size: 0.9rem;
+    color: #374151;
+    line-height: 1.5;
+}
+
+.oe-ai-modal-footer {
+    padding: 12px 18px;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}

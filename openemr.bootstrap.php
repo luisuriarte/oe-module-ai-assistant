@@ -17,6 +17,7 @@
 
 use OpenEMR\Core\ModulesClassLoader;
 use OpenEMR\Events\Core\ScriptFilterEvent;
+use OpenEMR\Events\Core\StyleFilterEvent;
 use OpenEMR\Modules\AiAssistant\EventListener\SoapFormScriptListener;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
@@ -33,9 +34,13 @@ $classLoader->registerNamespaceIfNotExists(
 );
 
 // Register event listeners.
-// SoapFormScriptListener injects our JS into the SOAP form <head>.
+// SoapFormScriptListener injects our JS & CSS into the SOAP form <head>.
 $soapListener = new SoapFormScriptListener();
 $eventDispatcher->addListener(
     ScriptFilterEvent::EVENT_NAME,
     [$soapListener, 'onScriptFilter']
+);
+$eventDispatcher->addListener(
+    StyleFilterEvent::EVENT_NAME,
+    [$soapListener, 'onStyleFilter']
 );

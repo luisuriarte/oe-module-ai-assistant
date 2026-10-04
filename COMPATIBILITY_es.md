@@ -3,7 +3,7 @@
 Versión mínima de OpenEMR: **8.2.0**  
 PHP mínimo: **8.2.0**
 
-Última actualización: M1
+Última actualización: M5
 
 ## Compatibilidad de Clases / Métodos / Eventos
 
@@ -59,6 +59,11 @@ PHP mínimo: **8.2.0**
 | `AclMain::aclCheckCore('patients', 'med')` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Verificación nativa de acceso clínico al paciente |
 | Esquema `lists` (`type='allergy'`, `activity=1`) | OpenEMR DB | ✅ | ✅ | Fuente universal de alergias activas tanto en 8.2.0 como en 8.4.1 |
 | Chequeo `forms.deleted = 0` | OpenEMR DB | ✅ | ✅ | Convención de soft-delete en todos los formularios clínicos |
+| `SoapFormScriptListener` | `OpenEMR\Modules\AiAssistant\EventListener` | ✅ | ✅ | Escucha `ScriptFilterEvent` y `StyleFilterEvent` en `load_form.php` y `view_form.php` |
+| Textareas nativos SOAP | DOM (`subjective`, `objective`, `assessment`, `plan`) | ✅ | ✅ | Poblados exclusivamente con `.value` / `.textContent` (sin inyección HTML) |
+| `SoapDraftGenerator` | `OpenEMR\Modules\AiAssistant\Draft` | ✅ | ✅ | Validación de esquema, reintento ante JSON inválido, anti-inyección y verosimilitud |
+| `DraftController` (`action=soap_draft`) | `OpenEMR\Modules\AiAssistant\Controller` | ✅ | ✅ | Sesión, CSRF, ACL use, acceso a paciente, cruce paciente/encuentro, timeout 60s, auditoría sin texto clínico |
+| Grabación con `MediaRecorder` | Web API | ✅ | ✅ | Soporte prioritario Safari `audio/mp4;codecs=mp4a.40.2` y fallback a `audio/webm;codecs=opus` |
 
 ## Estrategia de Detección por Capacidad
 
