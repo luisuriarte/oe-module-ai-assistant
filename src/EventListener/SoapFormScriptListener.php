@@ -90,7 +90,17 @@ class SoapFormScriptListener
 
         $scriptUrl = $this->buildAssetUrl('public/assets/js/ai-dictation.js');
 
-        $scripts   = $event->getScripts();
+        $scripts = $event->getScripts();
+        if (in_array($scriptUrl, $scripts, true)) {
+            $this->logger->error(
+                '[AiAssistant DIAG-4] Script already present in event; skipping duplicate injection'
+                . ' | url=' . $scriptUrl
+                . ' | pageName=' . $pageName
+                . ' | formname=' . $formName
+            );
+            return;
+        }
+
         $scripts[] = $scriptUrl;
         $event->setScripts($scripts);
 

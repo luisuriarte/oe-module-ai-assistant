@@ -2,8 +2,9 @@
  * ai-dictation.js - AI Dictation control for the SOAP form.
  *
  * M1 SMOKE TEST: confirms the script is loaded and the DOM is accessible.
- * - Logs a prefixed message to the browser console.
- * - Inserts a visible placeholder banner above the first SOAP fieldset.
+ * - Guarded against multiple executions (idempotent per document).
+ * - Fixed banner ID check avoids inserting duplicates into the DOM.
+ * - Executes immediately if document.readyState is past 'loading'.
  *
  * No other functionality. Full dictation UI implemented in M5.
  *
@@ -14,21 +15,32 @@
     'use strict';
 
     var PREFIX = '[AiAssistant]';
+    var BANNER_ID = 'oe-ai-assistant-smoke-banner';
 
     /* ------------------------------------------------------------------ *
-     * Step 1 — Log to console immediately (script is executing)           *
+     * Guard 1 — Global flag: run script logic at most once per document   *
      * ------------------------------------------------------------------ */
-    console.log(PREFIX + ' ai-dictation.js loaded and executing.');
+    if (window.__OE_AI_ASSISTANT_LOADED__) {
+        console.warn(PREFIX + ' ai-dictation.js already executed on this window/document. Skipping duplicate execution.');
+        return;
+    }
+    window.__OE_AI_ASSISTANT_LOADED__ = true;
+
+    console.log(PREFIX + ' ai-dictation.js loaded and executing (first run).');
 
     /* ------------------------------------------------------------------ *
-     * Step 2 — Wait for DOM ready, then insert the placeholder banner     *
+     * Banner insertion logic (idempotent)                                *
      * ------------------------------------------------------------------ */
-    function onDOMReady() {
-        console.log(PREFIX + ' DOMContentLoaded fired; inserting smoke-test banner.');
+    function insertBanner() {
+        /* Guard 2 — Skip insertion if element with this fixed ID already exists */
+        if (document.getElementById(BANNER_ID)) {
+            console.warn(PREFIX + ' Banner #' + BANNER_ID + ' already exists in DOM. Skipping insertion.');
+            return;
+        }
 
         /* The SOAP form has <form name="soap"> containing <fieldset> elements.
-         * The page may be inside an OpenEMR iframe, so we search the whole
-         * document. We target the first <fieldset> inside form[name="soap"]. */
+         * The page may be inside an OpenEMR iframe, so we search the current document.
+         * We target the first <fieldset> inside form[name="soap"]. */
         var form = document.querySelector('form[name="soap"]');
         if (!form) {
             console.warn(PREFIX + ' form[name="soap"] not found — banner not inserted.');
@@ -43,7 +55,7 @@
 
         /* Build the banner */
         var banner = document.createElement('div');
-        banner.id = 'oe-ai-assistant-smoke-banner';
+        banner.id = BANNER_ID;
         banner.style.cssText = [
             'background:#d1ecf1',
             'border:1px solid #bee5eb',
@@ -74,11 +86,15 @@
         console.log(PREFIX + ' Smoke-test banner inserted before first fieldset.');
     }
 
+    /* ------------------------------------------------------------------ *
+     * Execution trigger: run immediately if past 'loading', else wait    *
+     * ------------------------------------------------------------------ */
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', onDOMReady);
+        console.log(PREFIX + ' document.readyState is "loading"; waiting for DOMContentLoaded.');
+        document.addEventListener('DOMContentLoaded', insertBanner, { once: true });
     } else {
-        /* DOM already ready (script tag was defer or placed after body) */
-        onDOMReady();
+        console.log(PREFIX + ' document.readyState is "' + document.readyState + '" (past loading); inserting immediately.');
+        insertBanner();
     }
 
 }());
