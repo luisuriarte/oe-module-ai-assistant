@@ -3,10 +3,28 @@
 /**
  * SoapFormScriptListener — injects the AI Dictation JS into the SOAP form.
  *
- * Listens to ScriptFilterEvent. When the SOAP new/view form is rendered,
- * appends our ai-dictation.js to the page <head> via setupHeader().
+ * How the SOAP form is served in OpenEMR 8.2.0 and 8.4.1
+ * -------------------------------------------------------
+ * NEW encounter note:
+ *   GET /interface/patient_file/encounter/load_form.php?formname=soap&pid=..&encounter=..
+ *   ScriptFilterEvent pageName = "load_form.php"
+ *   SCRIPT_NAME       = ".../encounter/load_form.php"
  *
- * Compatibility: OpenEMR 8.2.0+ (ScriptFilterEvent identical in 8.2 and 8.4).
+ * VIEW / EDIT saved note:
+ *   GET /interface/patient_file/encounter/view_form.php?formname=soap&id=N&..
+ *   ScriptFilterEvent pageName = "view_form.php"
+ *   SCRIPT_NAME       = ".../encounter/view_form.php"
+ *
+ * Both scripts hard-code $pageName = "new.php" / "view.php" locally and pass
+ * them to FormLocator::findFile() which require_once's the individual form file.
+ * The HTTP entry point is always load_form.php or view_form.php, so
+ * $_SERVER['SCRIPT_NAME'] (and therefore ScriptFilterEvent::getPageName())
+ * always reflects the entry script, NOT the individual form file.
+ *
+ * Match strategy: pageName IN {load_form.php, view_form.php}
+ *                 AND $_GET['formname'] === 'soap'   (validated, never trusted further)
+ *
+ * Compatibility: OpenEMR 8.2.0 and 8.4.1 — confirmed by direct source inspection.
  *
  * @package   OpenEMR
  * @subpackage AiAssistant
@@ -22,6 +40,18 @@ use OpenEMR\Events\Core\ScriptFilterEvent;
 
 class SoapFormScriptListener
 {
+    /**
+     * The entry scripts that frame the SOAP form in both 8.2.0 and 8.4.1.
+     * The ScriptFilterEvent pageName equals basename($_SERVER['SCRIPT_NAME']).
+     */
+    private const SOAP_ENTRY_PAGES = ['load_form.php', 'view_form.php'];
+
+    /**
+     * The exact value of $_GET['formname'] that identifies the SOAP form.
+     * Any other value → do not inject.
+     */
+    private const SOAP_FORMNAME = 'soap';
+
     private SystemLogger $logger;
 
     public function __construct()
@@ -30,10 +60,7 @@ class SoapFormScriptListener
     }
 
     /**
-     * Called when ScriptFilterEvent fires (once per page, during setupHeader()).
-     *
-     * Detects SOAP form pages using the full script path stored in the event
-     * context argument — more reliable than basename alone.
+     * Called for every ScriptFilterEvent (once per page during setupHeader()).
      */
     public function onScriptFilter(ScriptFilterEvent $event): void
     {
@@ -42,13 +69,18 @@ class SoapFormScriptListener
             ScriptFilterEvent::CONTEXT_ARGUMENT_SCRIPT_NAME
         ) ?? '';
 
-        $matched = $this->isSoapFormPage($scriptName);
+        // Read formname from GET safely.
+        // It is validated here ONLY for routing; never used for file access or SQL.
+        $formName = $this->safeGetFormname();
 
-        // DIAG-3: log every event received, regardless of match
+        $matched = $this->isSoapFormPage($pageName, $formName);
+
+        // DIAG-3: log every event (pageName, scriptName, formname, match result)
         $this->logger->error(
             '[AiAssistant DIAG-3] ScriptFilterEvent received'
             . ' | pageName=' . $pageName
             . ' | scriptName=' . $scriptName
+            . ' | formname=' . $formName
             . ' | matched=' . ($matched ? 'YES' : 'NO')
         );
 
@@ -56,37 +88,91 @@ class SoapFormScriptListener
             return;
         }
 
-        $webRoot    = OEGlobalsBag::getInstance()->getWebRoot();
-        $scriptUrl  = $webRoot
-            . '/interface/modules/custom_modules/oe-module-ai-assistant/public/assets/js/ai-dictation.js';
+        $scriptUrl = $this->buildAssetUrl('public/assets/js/ai-dictation.js');
 
         $scripts   = $event->getScripts();
         $scripts[] = $scriptUrl;
         $event->setScripts($scripts);
 
-        // DIAG-4: log the script URL that was actually injected
+        // DIAG-4: log when a script is actually added
         $this->logger->error(
             '[AiAssistant DIAG-4] Script injected'
             . ' | url=' . $scriptUrl
             . ' | pageName=' . $pageName
-            . ' | scriptName=' . $scriptName
+            . ' | formname=' . $formName
         );
     }
 
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
     /**
-     * Returns true if the current page is the SOAP form (new or view action).
+     * Builds an asset URL with a cache-busting query parameter derived from the
+     * file's last modification time on disk (falling back to module version).
      *
-     * Matching is performed on the FULL server-side script path stored in
-     * CONTEXT_ARGUMENT_SCRIPT_NAME — not on the basename — to avoid false
-     * positives from other forms also named new.php or view.php.
-     *
-     * In OpenEMR 8.2.0/8.4.1, Header::setupHeader() sets:
-     *   pageName  = basename($_SERVER['SCRIPT_NAME'])   → "new.php" or "view.php"
-     *   scriptName = $_SERVER['SCRIPT_NAME']            → "/interface/forms/soap/new.php"
+     * OpenEMR's Header::createElement() detects the '?' and appends '&v=...',
+     * ensuring that our modification timestamp is preserved and changes on every edit.
      */
-    private function isSoapFormPage(string $scriptName): bool
+    private function buildAssetUrl(string $relativeAssetPath): string
     {
-        return str_contains($scriptName, 'forms/soap/new.php')
-            || str_contains($scriptName, 'forms/soap/view.php');
+        $webRoot   = OEGlobalsBag::getInstance()->getWebRoot();
+        $cleanPath = ltrim($relativeAssetPath, '/');
+        $diskPath  = dirname(__DIR__, 2) . '/' . $cleanPath;
+
+        $version = file_exists($diskPath) ? (string) filemtime($diskPath) : $this->getModuleVersion();
+
+        return $webRoot
+            . '/interface/modules/custom_modules/oe-module-ai-assistant/'
+            . $cleanPath
+            . '?mtime=' . $version;
+    }
+
+    /**
+     * Reads the module version from version.php as a fallback.
+     */
+    private function getModuleVersion(): string
+    {
+        $versionFile = dirname(__DIR__, 2) . '/version.php';
+        if (file_exists($versionFile)) {
+            include $versionFile;
+            if (isset($v_module_major, $v_module_minor, $v_module_patch)) {
+                return "{$v_module_major}.{$v_module_minor}.{$v_module_patch}";
+            }
+        }
+        return '0.1.0';
+    }
+
+    /**
+     * Returns true when the current page is the SOAP form framed inside either
+     * load_form.php (new note) or view_form.php (existing saved note), AND the
+     * formname GET parameter is exactly "soap".
+     *
+     * pageName is basename($_SERVER['SCRIPT_NAME']) as set by Header::setupHeader().
+     * formname is validated via filter_input; do not use it for anything other
+     * than this routing decision.
+     */
+    private function isSoapFormPage(string $pageName, string $formName): bool
+    {
+        return in_array($pageName, self::SOAP_ENTRY_PAGES, true)
+            && $formName === self::SOAP_FORMNAME;
+    }
+
+    /**
+     * Reads $_GET['formname'] safely for routing purposes only.
+     *
+     * Returns an empty string if the parameter is absent or contains characters
+     * other than alphanumeric and underscore (the valid form directory name charset).
+     * The return value is NEVER used for file access, SQL, or output.
+     */
+    private function safeGetFormname(): string
+    {
+        $raw = filter_input(INPUT_GET, 'formname', FILTER_UNSAFE_RAW) ?? '';
+        // Allow only the characters that OpenEMR permits in form directory names
+        // (check_file_dir_name uses [a-zA-Z0-9_-] effectively).
+        if (!is_string($raw) || !preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $raw)) {
+            return '';
+        }
+        return $raw;
     }
 }

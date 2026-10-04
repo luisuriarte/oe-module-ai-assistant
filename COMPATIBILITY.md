@@ -15,8 +15,11 @@ Last updated: M1
 | `EncounterMenuEvent` | `OpenEMR\Events\Encounter` | ✅ | ✅ | Identical |
 | `MenuEvent` | `OpenEMR\Menu` | ✅ | ✅ | Identical |
 | `PatientMenuEvent` | `OpenEMR\Menu` | ✅ | ✅ | Identical |
-| `Header::setupHeader()` | `OpenEMR\Core` | ✅ | ✅ | Fires `ScriptFilterEvent`; `pageName = basename($_SERVER[SCRIPT_NAME])` |
-| SOAP template path | n/a | ✅ | ✅ | `interface/forms/soap/templates/soap_form.twig` identical in both |
+| `Header::setupHeader()` | `OpenEMR\Core` | ✅ | ✅ | Fires `ScriptFilterEvent`; `pageName = basename($_SERVER['SCRIPT_NAME'])` of the HTTP entry script |
+| SOAP new-note entry script | n/a | ✅ | ✅ | `encounter/load_form.php?formname=soap` → `pageName="load_form.php"` (**not** `new.php`) |
+| SOAP view/edit entry script | n/a | ✅ | ✅ | `encounter/view_form.php?formname=soap&id=N` → `pageName="view_form.php"` (**not** `view.php`) |
+| SOAP template path | n/a | ✅ | ✅ | `interface/forms/soap/templates/soap_form.twig` — reached via FormLocator, not directly |
+| SOAP `formname` GET param | n/a | ✅ | ✅ | Must equal `"soap"` exactly; validated `/^[a-zA-Z0-9_-]{1,64}$/` before use |
 | SOAP field `subjective` | n/a | ✅ | ✅ | `<textarea name="subjective">` identical |
 | SOAP field `objective` | n/a | ✅ | ✅ | `<textarea name="objective">` identical |
 | SOAP field `assessment` | n/a | ✅ | ✅ | `<textarea name="assessment">` identical |

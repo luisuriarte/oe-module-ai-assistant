@@ -1,3 +1,8 @@
 # Allow public access to assets and the front controller.
 # All requests pass through index.php which enforces session + ACL.
 Require all granted
+
+<IfModule mod_mime.c>
+    AddType application/javascript .js
+    AddType text/css               .css
+</IfModule>
