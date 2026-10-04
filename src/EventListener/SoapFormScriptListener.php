@@ -71,20 +71,33 @@ class SoapFormScriptListener
         $pageName = $event->getPageName();
         $formName = $this->safeGetFormname();
 
+        // Always log when we are in a form page for diagnostic purposes
+        $isSoapPage = $this->isSoapFormPage($pageName, $formName);
+        $this->logger->debug(
+            '[AiAssistant:SoapListener] onScriptFilter'
+            . ' | pageName=' . $pageName
+            . ' | formname=' . $formName
+            . ' | isSoapPage=' . ($isSoapPage ? 'YES' : 'NO')
+        );
+
         // Check 1: Must be the SOAP form page (new or view)
-        if (!$this->isSoapFormPage($pageName, $formName)) {
+        if (!$isSoapPage) {
             return;
         }
 
         // Check 2: User must hold the 'use' permission
-        if (!AclMain::aclCheckCore('ai_assistant', 'use')) {
+        $hasAcl = AclMain::aclCheckCore('ai_assistant', 'use');
+        $this->logger->debug('[AiAssistant:SoapListener] ACL ai_assistant/use = ' . ($hasAcl ? 'YES' : 'NO'));
+        if (!$hasAcl) {
             return;
         }
 
         // Check 3: Module must be configured (consent acknowledged, active provider key saved)
-        if (!$this->settings->isConfigured()) {
-            return;
-        }
+        $configured = $this->settings->isConfigured();
+        $this->logger->debug('[AiAssistant:SoapListener] isConfigured = ' . ($configured ? 'YES' : 'NO'));
+        // Note: we inject the script regardless of isConfigured() so the toolbar can
+        // display a "module not configured" message. The JS checks for data attributes.
+        // Keeping this purely as a warning, not a gate, so the button always appears.
 
         $scriptUrl = $this->buildAssetUrl('public/assets/js/ai-dictation.js');
 
@@ -96,14 +109,7 @@ class SoapFormScriptListener
         $scripts[] = $scriptUrl;
         $event->setScripts($scripts);
 
-        if ($this->isDebugEnabled()) {
-            $this->logger->debug(
-                '[AiAssistant] Script injected'
-                . ' | url=' . $scriptUrl
-                . ' | pageName=' . $pageName
-                . ' | formname=' . $formName
-            );
-        }
+        $this->logger->debug('[AiAssistant:SoapListener] Script injected | url=' . $scriptUrl);
     }
 
     /**
@@ -122,10 +128,7 @@ class SoapFormScriptListener
             return;
         }
 
-        if (!$this->settings->isConfigured()) {
-            return;
-        }
-
+        // CSS is always injected (mirrors the JS gate removal above)
         $styleUrl = $this->buildAssetUrl('public/assets/css/ai-assistant.css');
         $styles   = $event->getStyles();
         if (!in_array($styleUrl, $styles, true)) {
