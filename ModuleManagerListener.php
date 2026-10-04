@@ -106,6 +106,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
     private function unregister($modId, string $currentActionStatus): string
     {
         try {
+            $this->unregisterAclSections();
             $this->runSqlFile(__DIR__ . '/sql/uninstall.sql');
         } catch (\Throwable $e) {
             $this->logger->error(
@@ -114,6 +115,30 @@ class ModuleManagerListener extends AbstractModuleActionListener
             return 'Error: ' . $e->getMessage();
         }
         return $currentActionStatus;
+    }
+
+    /**
+     * Removes the module's ACL section and permission objects on unregister.
+     */
+    private function unregisterAclSections(): void
+    {
+        $gaclClass = '\OpenEMR\Gacl\GaclAdminApi';
+        if (!class_exists($gaclClass)) {
+            $gaclClass = '\OpenEMR\Gacl\GaclApi';
+        }
+        if (class_exists($gaclClass)) {
+            $gacl = new $gaclClass();
+            foreach (['use', 'admin'] as $obj) {
+                $objId = $gacl->get_object_id('ai_assistant', $obj, 'ACO');
+                if ($objId) {
+                    $gacl->del_object($objId, 'ACO', true);
+                }
+            }
+            $secId = $gacl->get_object_section_section_id(null, 'ai_assistant', 'ACO');
+            if ($secId) {
+                $gacl->del_object_section($secId, 'ACO', true);
+            }
+        }
     }
 
     /** Called after SQL install file is run by Module Manager — no extra work. */

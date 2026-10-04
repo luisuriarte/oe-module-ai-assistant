@@ -26,21 +26,28 @@ Last updated: M1
 | SOAP field `plan` | n/a | ✅ | ✅ | `<textarea name="plan">` identical |
 | `CryptoGen::encryptStandard()` | `OpenEMR\Common\Crypto` | ✅ | ✅ | Identical signature |
 | `CryptoGen::decryptStandard()` | `OpenEMR\Common\Crypto` | ✅ | ✅ | Identical signature |
-| `SessionWrapperFactory::getInstance()->getActiveSession()` | `OpenEMR\Common\Session` | ✅ | ✅ | Identical |
-| `SessionUtil` | `OpenEMR\Common\Session` | ✅ | ✅ | Identical |
+| `SessionWrapperFactory::getInstance()->getActiveSession()` | `OpenEMR\Common\Session` | ✅ | ✅ | Returns `SessionInterface`. Identical API |
+| `SessionWrapperFactory::getInstance()->isSessionActive()` | `OpenEMR\Common\Session` | ✅ | ✅ | Identical |
+| `SessionUtil::coreSessionStart()` | `OpenEMR\Common\Session` | ✅ | ✅ | Identical. Starts core OpenEMR session |
 | `OEGlobalsBag::get()` | `OpenEMR\Core` | ✅ | ✅ | Identical |
 | `OEGlobalsBag::getWebRoot()` | `OpenEMR\Core` | ✅ | ✅ | Identical |
 | `OEGlobalsBag::getKernel()` | `OpenEMR\Core` | ✅ | ✅ | Identical |
 | `OEGlobalsBag::filter()` | `OpenEMR\Core` | ❌ | ✅ | **8.4.1 only** — not used in this module |
-| `VitalsService::getVitalsForPatientEncounter()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature |
-| `VitalsService::getVitalsHistoryForPatient()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature |
-| `PatientService` | `OpenEMR\Services` | ✅ | ✅ | Used via QueryUtils in PatientContextBuilder |
-| `EncounterService` | `OpenEMR\Services` | ✅ | ✅ | Used for encounter list |
-| `AclMain::aclCheckCore()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical |
+| `VitalsService::getVitalsForPatientEncounter()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($encounter_id)` |
+| `VitalsService::getVitalsHistoryForPatient()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid)` |
+| `VitalsService::search()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature |
+| `PatientService::getAll()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `(array $search = [], ...)` |
+| `PatientService::getFreshPid()` | `OpenEMR\Services` | ✅ | ✅ | Identical |
+| `EncounterService::getOneByPidEid()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid, $encounter_id)` |
+| `EncounterService::getMostRecentEncounterForPatient()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid): ?array` |
+| `EncounterService::insertSoapNote()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($pid, $eid, $data)` |
+| `PatientIssuesService::getActiveIssues()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `(int $pid): ProcessingResult` |
+| `PatientIssuesService::getOneById()` | `OpenEMR\Services` | ✅ | ✅ | Identical signature: `($issueId)` |
+| `AclMain::aclCheckCore()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical. Checks `(section, value, user, return_val)` |
 | `AclExtended::addObjectSectionAcl()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical |
 | `AclExtended::addObjectAcl()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical |
-| `CsrfUtils::verifyCsrfToken()` | `OpenEMR\Common\Csrf` | ✅ | ✅ | Identical |
-| `CsrfUtils::collectCsrfToken()` | `OpenEMR\Common\Csrf` | ✅ | ✅ | Identical |
+| `CsrfUtils::verifyCsrfToken()` | `OpenEMR\Common\Csrf` | ✅ | ✅ | Identical signature: `($token, SessionInterface $session, string $subject = 'default'): bool` |
+| `CsrfUtils::collectCsrfToken()` | `OpenEMR\Common\Csrf` | ✅ | ✅ | Identical signature: `(SessionInterface $session, string $subject = 'default'): string` |
 | `QueryUtils::fetchRecords()` | `OpenEMR\Common\Database` | ✅ | ✅ | Identical |
 | `QueryUtils::sqlStatementThrowException()` | `OpenEMR\Common\Database` | ✅ | ✅ | Identical |
 | `QueryUtils::sqlInsert()` | `OpenEMR\Common\Database` | ✅ | ✅ | Identical |
@@ -63,9 +70,17 @@ if (class_exists('\OpenEMR\Common\Forms\EncounterFormAccess')) {
 }
 ```
 
-## PHP Syntax Restrictions
+## PHP Version Requirements (from OpenEMR composer.json)
 
-Must compile on PHP 8.2.0. Forbidden constructs:
-- `readonly` classes (8.3+)  ← `readonly` *properties* are fine (8.1+)
+| Version | PHP Requirement in `composer.json` | Platform PHP | Notes |
+|---|---|---|---|
+| OpenEMR 8.2.0 | `"php": ">=8.2.0"` | `8.2` | Enforced by `Checker::$minimumPhpVersion = "8.2.0"` |
+| OpenEMR 8.4.1 | `"php": ">=8.3.0"` | `8.3` | Enforced by `Checker::$minimumPhpVersion = "8.3.0"` |
+| **This Module** | **`"php": ">=8.2.0"`** | **`8.2`** | **Must run on both 8.2.0 and 8.4.1** |
+
+### PHP Syntax Constraints
+Because this module supports OpenEMR 8.2.0 running on PHP 8.2, all module code must strictly compile on PHP 8.2.0. Forbidden constructs:
+- `readonly` classes (8.3+) — use `readonly` properties instead (8.1+)
 - `json_validate()` (8.3+)
 - Typed class constants with `final const Type` (8.3+)
+- Dynamic class constant fetch with `Foo::{$bar}` (8.3+)
