@@ -20,12 +20,12 @@ require_once __DIR__ . '/../../../../globals.php';
 
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
-use OpenEMR\Common\Session\SessionUtil;
+use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Modules\AiAssistant\Controller\SettingsController;
 use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
 
 // --- Session guard ---
-SessionUtil::coreSessionStart();
+$session = SessionWrapperFactory::getInstance()->getActiveSession();
 if (empty($_SESSION['authUserID'])) {
     http_response_code(401);
     exit(json_encode(['error' => xlt('Unauthorized')]));

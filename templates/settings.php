@@ -14,6 +14,8 @@
  * @package   OpenEMR
  * @subpackage AiAssistant
  */
+
+use OpenEMR\Core\Header;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -21,7 +23,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?php echo xlt('AI Assistant Settings'); ?></title>
-    <?php Header::setupHeader(); ?>
+    <?php \OpenEMR\Core\Header::setupHeader(); ?>
     <style>
         .ai-settings-section {
             margin-bottom: 1.5rem;

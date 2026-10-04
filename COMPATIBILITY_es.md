@@ -26,9 +26,8 @@ PHP mínimo: **8.2.0**
 | Campo SOAP `plan` | n/a | ✅ | ✅ | `<textarea name="plan">` idéntico |
 | `CryptoGen::encryptStandard()` | `OpenEMR\Common\Crypto` | ✅ | ✅ | Firma idéntica |
 | `CryptoGen::decryptStandard()` | `OpenEMR\Common\Crypto` | ✅ | ✅ | Firma idéntica |
-| `SessionWrapperFactory::getInstance()->getActiveSession()` | `OpenEMR\Common\Session` | ✅ | ✅ | Devuelve `SessionInterface`. API idéntica |
+| `SessionWrapperFactory::getInstance()->getActiveSession()` | `OpenEMR\Common\Session` | ✅ | ✅ | Devuelve `SessionInterface`. Garantiza sesión activa |
 | `SessionWrapperFactory::getInstance()->isSessionActive()` | `OpenEMR\Common\Session` | ✅ | ✅ | Idéntico |
-| `SessionUtil::coreSessionStart()` | `OpenEMR\Common\Session` | ✅ | ✅ | Idéntico. Inicia sesión core de OpenEMR |
 | `OEGlobalsBag::get()` | `OpenEMR\Core` | ✅ | ✅ | Idéntico |
 | `OEGlobalsBag::getWebRoot()` | `OpenEMR\Core` | ✅ | ✅ | Idéntico |
 | `OEGlobalsBag::getKernel()` | `OpenEMR\Core` | ✅ | ✅ | Idéntico |

@@ -26,9 +26,8 @@ Last updated: M1
 | SOAP field `plan` | n/a | ✅ | ✅ | `<textarea name="plan">` identical |
 | `CryptoGen::encryptStandard()` | `OpenEMR\Common\Crypto` | ✅ | ✅ | Identical signature |
 | `CryptoGen::decryptStandard()` | `OpenEMR\Common\Crypto` | ✅ | ✅ | Identical signature |
-| `SessionWrapperFactory::getInstance()->getActiveSession()` | `OpenEMR\Common\Session` | ✅ | ✅ | Returns `SessionInterface`. Identical API |
+| `SessionWrapperFactory::getInstance()->getActiveSession()` | `OpenEMR\Common\Session` | ✅ | ✅ | Returns `SessionInterface`. Ensures active session |
 | `SessionWrapperFactory::getInstance()->isSessionActive()` | `OpenEMR\Common\Session` | ✅ | ✅ | Identical |
-| `SessionUtil::coreSessionStart()` | `OpenEMR\Common\Session` | ✅ | ✅ | Identical. Starts core OpenEMR session |
 | `OEGlobalsBag::get()` | `OpenEMR\Core` | ✅ | ✅ | Identical |
 | `OEGlobalsBag::getWebRoot()` | `OpenEMR\Core` | ✅ | ✅ | Identical |
 | `OEGlobalsBag::getKernel()` | `OpenEMR\Core` | ✅ | ✅ | Identical |
