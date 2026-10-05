@@ -469,11 +469,11 @@ use OpenEMR\Core\Header;
                 <div class="col-md-9 form-group">
                     <label for="test_system_prompt"><?php echo xlt('System prompt (optional):'); ?></label>
                     <input type="text" class="form-control" id="test_system_prompt"
-                           value="<?php echo attr(xlt('You are a concise medical triage assistant. Answer in two brief sentences.')); ?>">
+                           value="<?php echo attr('You are a concise medical triage assistant. Answer in two brief sentences.'); ?>">
                 </div>
                 <div class="col-12 form-group">
                     <label for="test_user_prompt"><strong><?php echo xlt('User prompt (synthetic only):'); ?></strong></label>
-                    <textarea class="form-control" id="test_user_prompt" rows="2"><?php echo text(xlt('Explain the clinical significance of a blood pressure reading of 150/95 mmHg.')); ?></textarea>
+                    <textarea class="form-control" id="test_user_prompt" rows="2"><?php echo text('Explain the clinical significance of a blood pressure reading of 150/95 mmHg.'); ?></textarea>
                 </div>
                 <div class="col-12">
                     <button type="button" class="btn btn-primary" id="btn-run-test-prompt">

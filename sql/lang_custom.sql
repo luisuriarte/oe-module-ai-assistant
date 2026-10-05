@@ -137,7 +137,49 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Chat history cleared.', 'Historial de chat eliminado.'),
 ('Spanish (Latin American)', 'el', 'Clear chat', 'Limpiar chat'),
 ('Spanish (Latin American)', 'el', 'AI Assistant is thinking...', 'El Asistente IA está pensando...'),
-('Spanish (Latin American)', 'el', 'Chat is disabled. Enable it in module settings.', 'El chat está deshabilitado. Habilítelo en la configuración del módulo.');
+('Spanish (Latin American)', 'el', 'Chat is disabled. Enable it in module settings.', 'El chat está deshabilitado. Habilítelo en la configuración del módulo.'),
+
+-- Settings page — privacy notice and lab toggle
+('Spanish (Latin American)', 'el', 'Important privacy notice:', 'Aviso de privacidad importante:'),
+('Spanish (Latin American)', 'el', 'Free-tier API keys (such as Google AI Studio free tier) may allow the provider to review or use submitted content for model training. Free-tier keys must NEVER be used with real patient data. Use only paid/HIPAA/BAA enterprise tiers in production.', 'Las claves API de nivel gratuito (como el nivel gratuito de Google AI Studio) pueden permitir que el proveedor revise o utilice el contenido enviado para entrenar modelos. Las claves de nivel gratuito NUNCA deben usarse con datos reales de pacientes. En producción, use únicamente planes empresariales de pago, HIPAA o BAA.'),
+('Spanish (Latin American)', 'el', 'Include recent lab results (off by default)', 'Incluir resultados de laboratorio recientes (desactivado por defecto)'),
+
+-- Settings page — Admin Test Bench: Whisper audio transcription
+('Spanish (Latin American)', 'el', 'Admin Test Bench - Whisper Audio Transcription', 'Banco de Pruebas del Administrador - Transcripción de Audio Whisper'),
+('Spanish (Latin American)', 'el', 'Upload-only (Test mode)', 'Solo carga de archivos (modo de prueba)'),
+('Spanish (Latin American)', 'el', 'Transcript Output:', 'Salida de la Transcripción:'),
+('Spanish (Latin American)', 'el', 'Transcript will appear here once processing completes...', 'La transcripción aparecerá aquí una vez que el procesamiento se complete...'),
+
+-- Settings page — Admin Test Bench: Synthetic AI prompt
+('Spanish (Latin American)', 'el', 'Admin Test Bench - Synthetic AI Prompt Test (M3 Provider Layer)', 'Banco de Pruebas del Administrador - Prueba de Prompt Sintético de IA (Capa de Proveedor M3)'),
+('Spanish (Latin American)', 'el', 'Synthetic prompt (No patient data)', 'Prompt sintético (sin datos de paciente)'),
+('Spanish (Latin American)', 'el', 'Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, Anthropic, or Grok). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.', 'Envía un prompt de prueba sintético a través de la capa real de proveedores (Gemini, OpenAI, Anthropic o Grok). Verifica la autenticación, el formato de la carga útil HTTPS, el conteo de tokens y el registro de auditoría. Se audita con patient_id = 0.'),
+('Spanish (Latin American)', 'el', 'System prompt (optional):', 'Prompt del sistema (opcional):'),
+('Spanish (Latin American)', 'el', 'User prompt (synthetic only):', 'Prompt del usuario (solo sintético):'),
+('Spanish (Latin American)', 'el', 'Run Test Prompt', 'Ejecutar Prompt de Prueba'),
+('Spanish (Latin American)', 'el', 'Contacting provider...', 'Contactando al proveedor...'),
+('Spanish (Latin American)', 'el', 'AI Provider Response:', 'Respuesta del Proveedor de IA:'),
+('Spanish (Latin American)', 'el', 'Provider response will appear here...', 'La respuesta del proveedor aparecerá aquí...'),
+
+-- Settings page — Admin Test Bench: Patient context preview and leak check
+('Spanish (Latin American)', 'el', 'Admin Test Bench - Patient Context Preview & Leak Check', 'Banco de Pruebas del Administrador - Vista Previa del Contexto del Paciente y Detección de Fugas'),
+('Spanish (Latin American)', 'el', 'M4 Privacy Verification', 'Verificación de Privacidad M4'),
+('Spanish (Latin American)', 'el', 'Generates the exact anonymized/redacted prompt context that would be sent to the AI model for a selected patient. Runs an automated leak check verifying that the patient''s real name, surname, DOB, phone, email, and national/SSN identifiers do not appear anywhere in the assembled text. Audited with patient ID but without clinical text.', 'Genera el contexto exacto anonimizado/ redactado del prompt que se enviaría al modelo de IA para un paciente seleccionado. Ejecuta una verificación automatizada de fugas que confirma que el nombre, apellido, fecha de nacimiento, teléfono, correo electrónico e identificadores nacionales/SSN reales del paciente no aparecen en ningún lugar del texto ensamblado. Se audita con el ID del paciente pero sin texto clínico.'),
+('Spanish (Latin American)', 'el', 'Patient ID (PID)', 'ID del Paciente (PID)'),
+('Spanish (Latin American)', 'el', 'Generate Context & Check Leaks', 'Generar Contexto y Verificar Fugas'),
+('Spanish (Latin American)', 'el', 'Patient context preview will appear here...', 'La vista previa del contexto del paciente aparecerá aquí...'),
+
+-- Settings page — provider rejection message (M3 provider layer)
+('Spanish (Latin American)', 'el', 'The AI provider rejected the request.', 'El proveedor de IA rechazó la solicitud.'),
+
+-- Settings page — Synthetic prompt test: success feedback and token/latency stats
+('Spanish (Latin American)', 'el', 'Response received!', '¡Respuesta recibida!'),
+('Spanish (Latin American)', 'el', 'Tokens:', 'Tokens:'),
+('Spanish (Latin American)', 'el', 'in', 'de entrada'),
+('Spanish (Latin American)', 'el', 'out', 'de salida'),
+('Spanish (Latin American)', 'el', 'total', 'total'),
+('Spanish (Latin American)', 'el', 'Latency:', 'Latencia:'),
+('Spanish (Latin American)', 'el', 'Logged in audit table', 'Registrado en la tabla de auditoría');
 
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)
