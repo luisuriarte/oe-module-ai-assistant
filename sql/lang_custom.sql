@@ -39,7 +39,7 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 
 -- Settings page — title and navigation
 ('Spanish (Latin American)', 'el', 'AI Assistant Settings', 'Configuración del Asistente IA'),
-('Spanish (Latin American)', 'el', 'AI Assistant - Settings', 'Asistente IA — Configuración'),
+('Spanish (Latin American)', 'el', 'AI Assistant — Settings', 'Asistente IA — Configuración'),
 ('Spanish (Latin American)', 'el', 'Save Settings', 'Guardar Configuración'),
 ('Spanish (Latin American)', 'el', 'Settings saved.', 'Configuración guardada.'),
 ('Spanish (Latin American)', 'el', 'Some settings could not be saved. Check server logs.', 'Algunas configuraciones no pudieron guardarse. Consulte los registros del servidor.'),
@@ -145,13 +145,13 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Include recent lab results (off by default)', 'Incluir resultados de laboratorio recientes (desactivado por defecto)'),
 
 -- Settings page — Admin Test Bench: Whisper audio transcription
-('Spanish (Latin American)', 'el', 'Admin Test Bench - Whisper Audio Transcription', 'Banco de Pruebas del Administrador - Transcripción de Audio Whisper'),
+('Spanish (Latin American)', 'el', 'Admin Test Bench — Whisper Audio Transcription', 'Banco de Pruebas del Administrador - Transcripción de Audio Whisper'),
 ('Spanish (Latin American)', 'el', 'Upload-only (Test mode)', 'Solo carga de archivos (modo de prueba)'),
 ('Spanish (Latin American)', 'el', 'Transcript Output:', 'Salida de la Transcripción:'),
 ('Spanish (Latin American)', 'el', 'Transcript will appear here once processing completes...', 'La transcripción aparecerá aquí una vez que el procesamiento se complete...'),
 
 -- Settings page — Admin Test Bench: Synthetic AI prompt
-('Spanish (Latin American)', 'el', 'Admin Test Bench - Synthetic AI Prompt Test (M3 Provider Layer)', 'Banco de Pruebas del Administrador - Prueba de Prompt Sintético de IA (Capa de Proveedor M3)'),
+('Spanish (Latin American)', 'el', 'Admin Test Bench — Synthetic AI Prompt Test (M3 Provider Layer)', 'Banco de Pruebas del Administrador - Prueba de Prompt Sintético de IA (Capa de Proveedor M3)'),
 ('Spanish (Latin American)', 'el', 'Synthetic prompt (No patient data)', 'Prompt sintético (sin datos de paciente)'),
 ('Spanish (Latin American)', 'el', 'Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, Anthropic, or Grok). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.', 'Envía un prompt de prueba sintético a través de la capa real de proveedores (Gemini, OpenAI, Anthropic o Grok). Verifica la autenticación, el formato de la carga útil HTTPS, el conteo de tokens y el registro de auditoría. Se audita con patient_id = 0.'),
 ('Spanish (Latin American)', 'el', 'System prompt (optional):', 'Prompt del sistema (opcional):'),
@@ -162,7 +162,7 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Provider response will appear here...', 'La respuesta del proveedor aparecerá aquí...'),
 
 -- Settings page — Admin Test Bench: Patient context preview and leak check
-('Spanish (Latin American)', 'el', 'Admin Test Bench - Patient Context Preview & Leak Check', 'Banco de Pruebas del Administrador - Vista Previa del Contexto del Paciente y Detección de Fugas'),
+('Spanish (Latin American)', 'el', 'Admin Test Bench — Patient Context Preview & Leak Check', 'Banco de Pruebas del Administrador - Vista Previa del Contexto del Paciente y Detección de Fugas'),
 ('Spanish (Latin American)', 'el', 'M4 Privacy Verification', 'Verificación de Privacidad M4'),
 ('Spanish (Latin American)', 'el', 'Generates the exact anonymized/redacted prompt context that would be sent to the AI model for a selected patient. Runs an automated leak check verifying that the patient''s real name, surname, DOB, phone, email, and national/SSN identifiers do not appear anywhere in the assembled text. Audited with patient ID but without clinical text.', 'Genera el contexto exacto anonimizado/ redactado del prompt que se enviaría al modelo de IA para un paciente seleccionado. Ejecuta una verificación automatizada de fugas que confirma que el nombre, apellido, fecha de nacimiento, teléfono, correo electrónico e identificadores nacionales/SSN reales del paciente no aparecen en ningún lugar del texto ensamblado. Se audita con el ID del paciente pero sin texto clínico.'),
 ('Spanish (Latin American)', 'el', 'Patient ID (PID)', 'ID del Paciente (PID)'),
