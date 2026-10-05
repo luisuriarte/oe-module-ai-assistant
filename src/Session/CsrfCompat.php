@@ -84,6 +84,16 @@ final class CsrfCompat
 
     /**
      * Inspects the real signature rather than trusting the OpenEMR version number.
+     *
+     * The discriminator is the parameter NAME: 8.2.0 / 8.4.1 declare
+     * verifyCsrfToken($token, SessionInterface $session, string $subject), while the older
+     * layout declares verifyCsrfToken($token, $subject = 'default', ?SessionInterface $session).
+     * So $session in position 1 means the new layout and $subject in position 1 the old one.
+     *
+     * Type hints cannot be used for this: the real type is the fully-qualified
+     * Symfony\Component\HttpFoundation\Session\SessionInterface, so getName() returns that
+     * whole string and a comparison against the short name 'SessionInterface' always fails.
+     * Matching on the short name after stripping the namespace avoids that trap.
      */
     private static function sessionIsSecondArg(): bool
     {
@@ -92,19 +102,34 @@ final class CsrfCompat
         }
 
         try {
-            $method    = new \ReflectionMethod(CsrfUtils::class, 'verifyCsrfToken');
-            $params    = $method->getParameters();
+            $params    = (new \ReflectionMethod(CsrfUtils::class, 'verifyCsrfToken'))->getParameters();
             $secondArg = $params[1] ?? null;
-            $type      = $secondArg?->getType();
 
-            $name = $secondArg?->getName() ?? '';
-            $isSessionType = $type instanceof \ReflectionNamedType
-                && in_array($type->getName(), ['SessionInterface', 'object'], true);
+            if ($secondArg === null) {
+                // Fewer than two parameters: nothing to reorder, assume the new layout.
+                self::$sessionIsSecondArg = true;
+                return self::$sessionIsSecondArg;
+            }
 
-            // The 8.2.0/8.4.1 layout names the parameter $session and type-hints it;
-            // the older layout names it $subject and defaults to 'default' as a string.
-            self::$sessionIsSecondArg = ($name === 'session' && $isSessionType)
-                || ($isSessionType && ($secondArg?->isDefaultValueAvailable() === false));
+            $name     = $secondArg->getName();
+            $type     = $secondArg->getType();
+            $short    = $type instanceof \ReflectionNamedType
+                ? substr(strrchr('\\' . $type->getName(), '\\'), 1)
+                : '';
+
+            $looksLikeSession = $name === 'session'
+                || ($short !== '' && str_ends_with($short, 'SessionInterface'));
+
+            // Layout A: second parameter IS the session and has no default.
+            // Layout B: second parameter is $subject with a default of 'default'.
+            if ($name === 'subject' && $secondArg->isDefaultValueAvailable()) {
+                self::$sessionIsSecondArg = false;
+            } elseif ($looksLikeSession) {
+                self::$sessionIsSecondArg = true;
+            } else {
+                // Unknown shape: fall back on which parameter carries the session type.
+                self::$sessionIsSecondArg = $short !== '' && str_ends_with($short, 'SessionInterface');
+            }
         } catch (\Throwable) {
             // Default to the layout used by 8.2.0 and 8.4.1, which is what we support.
             self::$sessionIsSecondArg = true;

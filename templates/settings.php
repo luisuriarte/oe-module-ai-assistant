@@ -238,7 +238,7 @@ use OpenEMR\Core\Header;
                         <div class="col-md-3 form-group">
                             <label><?php echo xlt('Model'); ?></label>
                             <input type="text" class="form-control" name="gemini_model"
-                                   value="<?php echo attr($current['gemini_model'] ?? 'gemini-2.0-flash'); ?>">
+                                   value="<?php echo attr($current['gemini_model'] ?? 'gemini-3.8-flash'); ?>">
                         </div>
                         <div class="col-md-2 form-group">
                             <label><?php echo xlt('Temperature'); ?></label>

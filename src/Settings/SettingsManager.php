@@ -223,7 +223,7 @@ class SettingsManager
 
             // Gemini
             'gemini_base_url'        => 'https://generativelanguage.googleapis.com',
-            'gemini_model'           => 'gemini-2.0-flash',
+            'gemini_model'           => 'gemini-3.8-flash',
             'gemini_temperature'     => '0.2',
             'gemini_max_tokens'      => '2048',
             'gemini_api_key'         => '',   // encrypted

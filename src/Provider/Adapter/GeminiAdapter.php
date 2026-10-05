@@ -31,21 +31,68 @@ class GeminiAdapter extends AbstractProviderAdapter
 {
     private string $baseUrl;
 
+    /**
+     * Current GA model. gemini-2.0-flash was retired and now returns HTTP 404.
+     * Reference: https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
+     */
+    public const DEFAULT_MODEL = 'gemini-3.8-flash';
+
     public function __construct(
         string $apiKey,
-        string $model = 'gemini-2.0-flash',
+        string $model = self::DEFAULT_MODEL,
         float $temperature = 0.2,
         int $maxTokens = 2048,
         string $baseUrl = 'https://generativelanguage.googleapis.com',
         int $timeoutSec = 30
     ) {
-        parent::__construct($apiKey, $model ?: 'gemini-2.0-flash', $temperature, $maxTokens, $timeoutSec);
+        // Accept both "gemini-3.8-flash" and "models/gemini-3.8-flash". The REST path is
+        // built as /v1beta/models/{model}, so a stored "models/" prefix would otherwise
+        // produce /v1beta/models/models%2Fgemini-3.8-flash and a 404.
+        $normalized = self::normalizeModel($model);
+
+        parent::__construct(
+            $apiKey,
+            $normalized !== '' ? $normalized : self::DEFAULT_MODEL,
+            $temperature,
+            $maxTokens,
+            $timeoutSec
+        );
         $this->baseUrl = self::validateBaseUrl($baseUrl ?: 'https://generativelanguage.googleapis.com');
     }
 
-    public function getProviderName(): string
+    /**
+     * Strips the optional "models/" prefix and surrounding whitespace.
+     */
+    private static function normalizeModel(string $model): string
+    {
+        $model = trim($model);
+        if (stripos($model, 'models/') === 0) {
+            $model = substr($model, 7);
+        }
+
+        return trim($model);
+    }
+
+public function getProviderName(): string
     {
         return 'gemini';
+    }
+
+    /**
+     * True for pre-3.x Gemini models, which still accept temperature / top_p / top_k.
+     *
+     * Reference: https://ai.google.dev/gemini-api/docs/deprecations
+     */
+    private function supportsSamplingParams(): bool
+    {
+        if (preg_match('/(\d+)(?:\.(\d+))?/', $this->model, $m) !== 1) {
+            // Unrecognised name: assume modern behaviour and omit sampling params.
+            return false;
+        }
+
+        $major = (int) $m[1];
+
+        return $major < 3;
     }
 
     /**
@@ -90,10 +137,17 @@ class GeminiAdapter extends AbstractProviderAdapter
         $payload = [
             'contents'         => $contents,
             'generationConfig' => [
-                'temperature'     => (float) ($options['temperature'] ?? $this->temperature),
                 'maxOutputTokens' => (int) ($options['max_tokens'] ?? $this->maxTokens),
             ],
         ];
+
+        // Gemini 3.x (gemini-3.8-flash and later) asks that sampling parameters be left at
+        // their defaults: setting temperature explicitly — especially below 1.0, which this
+        // module used for "clinical precision" — causes looping and degraded output. Only send
+        // it for pre-3.x models that still accept it.
+        if ($this->supportsSamplingParams()) {
+            $payload['generationConfig']['temperature'] = (float) ($options['temperature'] ?? $this->temperature);
+        }
 
         if ($systemText !== '') {
             $payload['systemInstruction'] = [

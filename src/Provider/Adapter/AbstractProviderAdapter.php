@@ -304,7 +304,12 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
         // 4. Server errors (5xx) or unexpected status
         if ($statusCode >= 500) {
             throw new ProviderInvalidResponseException(
-                "{$providerName} service unavailable or internal error (HTTP {$statusCode}).",
+                sprintf(
+                    '%s service unavailable or internal error (HTTP %d): %s',
+                    $providerName,
+                    $statusCode,
+                    self::extractProviderError((string) $body)
+                ),
                 $statusCode,
                 null,
                 $providerName
@@ -312,8 +317,16 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
         }
 
         if ($statusCode < 200 || $statusCode >= 300) {
+            // A 4xx from the provider carries the actual reason (model not found, bad
+            // parameter, unsupported endpoint) in the body. Reporting it as a generic
+            // "invalid response" hid the real cause behind "invalid format" in the UI.
             throw new ProviderInvalidResponseException(
-                "{$providerName} returned unexpected status (HTTP {$statusCode}).",
+                sprintf(
+                    '%s rejected the request (HTTP %d): %s',
+                    $providerName,
+                    $statusCode,
+                    self::extractProviderError($body)
+                ),
                 $statusCode,
                 null,
                 $providerName
@@ -325,5 +338,39 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
             'body'       => (string) $body,
             'headers'    => $responseHeaders,
         ];
+    }
+
+    /**
+     * Pulls the human-readable reason out of an OpenAI-compatible error body.
+     *
+     * Shape: {"error": {"message": "...", "type": "...", "code": "..."}}
+     * Falls back to a truncated raw body so nothing is silently discarded.
+     */
+    private static function extractProviderError(string $body): string
+    {
+        $body = trim($body);
+        if ($body === '') {
+            return 'no response body';
+        }
+
+        $decoded = json_decode($body, true);
+        if (is_array($decoded) && isset($decoded['error'])) {
+            $err = $decoded['error'];
+            if (is_array($err)) {
+                $msg = trim((string) ($err['message'] ?? ''));
+                $code = trim((string) ($err['code'] ?? ''));
+                $type = trim((string) ($err['type'] ?? ''));
+                $parts = array_filter([$type, $code, $msg], fn($p) => $p !== '');
+                if ($parts !== []) {
+                    return implode(' | ', $parts);
+                }
+            }
+            if (is_string($err) && $err !== '') {
+                return $err;
+            }
+        }
+
+        // Not JSON, or an unexpected shape: show a bounded slice for the log.
+        return mb_strimwidth(preg_replace('/\s+/', ' ', $body) ?? $body, 0, 300, '...');
     }
 }

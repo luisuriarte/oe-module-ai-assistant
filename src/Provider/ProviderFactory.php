@@ -74,7 +74,7 @@ class ProviderFactory
         return match ($targetProvider) {
             'gemini' => new GeminiAdapter(
                 apiKey: $apiKey,
-                model: (string) $this->settings->get('gemini_model', 'gemini-2.0-flash'),
+                model: (string) $this->settings->get('gemini_model', GeminiAdapter::DEFAULT_MODEL),
                 temperature: (float) $this->settings->get('gemini_temperature', 0.2),
                 maxTokens: (int) $this->settings->get('gemini_max_tokens', 2048),
                 baseUrl: (string) $this->settings->get('gemini_base_url', 'https://generativelanguage.googleapis.com'),

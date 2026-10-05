@@ -252,6 +252,11 @@ class DraftController
             $durationMs = (int) round((microtime(true) - $start) * 1000);
             $errCode    = substr((new \ReflectionClass($e))->getShortName(), 0, 64);
 
+            // Log the provider's own reason so a rejected request is diagnosable from the
+            // server log instead of only "invalid format" on screen. Provider-side text
+            // only; the prompt and transcript are never included.
+            $this->logger->error('[AiAssistant] soap_draft failed: ' . $errCode . ' - ' . $e->getMessage());
+
             // Audit record for failure (metadata-only)
             $audit = new AuditLogger();
             $audit->log(
@@ -313,7 +318,10 @@ class DraftController
             $e instanceof ProviderTimeoutException =>
                 xlt('The AI provider request timed out. Please try again or check your network connectivity.'),
             $e instanceof ProviderInvalidResponseException =>
-                xlt('The AI provider returned an invalid format. Please retry generating the note.'),
+                // The provider's own reason (model not found, bad request, 5xx body) is
+                // more actionable than a blanket "invalid format", so surface it. It is
+                // provider-side text and contains no patient data.
+                xlt('The AI provider rejected the request.') . ' ' . $e->getMessage(),
             $e instanceof ProviderException =>
                 xlt('AI Provider error:') . ' ' . $e->getMessage(),
             default =>
