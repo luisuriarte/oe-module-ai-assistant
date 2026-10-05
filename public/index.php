@@ -20,13 +20,19 @@ require_once __DIR__ . '/../../../../globals.php';
 
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
-use OpenEMR\Common\Session\SessionWrapperFactory;
+use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Controller\DraftController;
 use OpenEMR\Modules\AiAssistant\Controller\SettingsController;
 use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
 
 // --- Session guard ---
-$session = SessionWrapperFactory::getInstance()->getActiveSession();
+$session = SessionAccessor::resolve();
+// Fail closed: with no usable session there is no authenticated user.
+if ($session === null) {
+    http_response_code(401);
+    echo json_encode(['error' => 'unauthorized']);
+    exit;
+}
 $userId  = (int) (
     $session->get('authUserID')
     ?? $session->get('authId')

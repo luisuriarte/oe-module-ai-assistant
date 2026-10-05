@@ -20,7 +20,8 @@ namespace OpenEMR\Modules\AiAssistant\Controller;
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Logging\SystemLogger;
-use OpenEMR\Common\Session\SessionWrapperFactory;
+use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
+use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Provider\ProviderFactory;
@@ -105,8 +106,14 @@ class SettingsController
     private function handlePost(): void
     {
         // CSRF validation
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
-        if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'] ?? '', $session)) {
+        $session = SessionAccessor::resolve();
+        // Fail closed: without a usable session the CSRF token cannot be verified.
+        if ($session === null) {
+            http_response_code(400);
+            echo xlt('Invalid CSRF token.');
+            return;
+        }
+        if (!CsrfCompat::verify((string) ($_POST['csrf_token_form'] ?? ''), $session)) {
             http_response_code(400);
             echo xlt('Invalid CSRF token.');
             return;
@@ -168,8 +175,8 @@ class SettingsController
 
     private function renderForm(bool $success = true, string $message = ''): void
     {
-        $session  = SessionWrapperFactory::getInstance()->getActiveSession();
-        $csrf     = CsrfUtils::collectCsrfToken($session);
+        $session  = SessionAccessor::resolve();
+        $csrf     = CsrfCompat::collect($session);
         $current  = $this->settings->getAll();
         $defaults = $this->settings->getDefaults();
         $webRoot  = OEGlobalsBag::getInstance()->getWebRoot();
@@ -211,9 +218,15 @@ class SettingsController
             return;
         }
 
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+        // Fail closed: without a usable session the CSRF token cannot be verified.
+        if ($session === null) {
+            http_response_code(400);
+            echo json_encode(['error' => 'invalid_csrf']);
+            return;
+        }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
-        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+        if (!CsrfCompat::verify((string) $token, $session)) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
             return;
@@ -252,9 +265,15 @@ class SettingsController
             return;
         }
 
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+        // Fail closed: without a usable session the CSRF token cannot be verified.
+        if ($session === null) {
+            http_response_code(400);
+            echo json_encode(['error' => 'invalid_csrf']);
+            return;
+        }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
-        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+        if (!CsrfCompat::verify((string) $token, $session)) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
             return;
@@ -290,9 +309,15 @@ class SettingsController
             return;
         }
 
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+        // Fail closed: without a usable session the CSRF token cannot be verified.
+        if ($session === null) {
+            http_response_code(400);
+            echo json_encode(['error' => 'invalid_csrf']);
+            return;
+        }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
-        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+        if (!CsrfCompat::verify((string) $token, $session)) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
             return;
@@ -407,9 +432,15 @@ class SettingsController
             return;
         }
 
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+        // Fail closed: without a usable session the CSRF token cannot be verified.
+        if ($session === null) {
+            http_response_code(400);
+            echo json_encode(['error' => 'invalid_csrf']);
+            return;
+        }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
-        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+        if (!CsrfCompat::verify((string) $token, $session)) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
             return;

@@ -26,7 +26,8 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
-use OpenEMR\Common\Session\SessionWrapperFactory;
+use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
+use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
@@ -60,9 +61,15 @@ class TranscribeController
         }
 
         // 1. CSRF Validation
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+            // Fail closed: without a usable session the CSRF token cannot be verified.
+            if ($session === null) {
+                http_response_code(400);
+                echo json_encode(['error' => 'invalid_csrf']);
+                return;
+            }
         $token   = $_POST['csrf_token'] ?? $_POST['csrf_token_form'] ?? '';
-        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+        if (!CsrfCompat::verify($token, $session)) {
             http_response_code(400);
             echo json_encode(['error' => 'invalid_csrf']);
             return;
@@ -133,7 +140,22 @@ class TranscribeController
             $pid       = (int) ($_POST['pid'] ?? 0);
             $encounter = (int) ($_POST['encounter'] ?? 0);
 
-            // Validate clinical context against database
+            // The SOAP form runs inside an iframe whose URL is built by
+            // encounter_top.php as load_form.php?formname=soap — it carries neither
+            // pid nor encounter — and soap_form.twig renders a hidden 'pid' but no
+            // hidden 'encounter'. So the client can only ever submit encounter = 0.
+            //
+            // The authoritative encounter lives in the session, set by
+            // EncounterSessionUtil::setEncounter() when the encounter tab was opened.
+            // Resolve it server-side rather than relaxing validation: keeping the
+            // strict check is what stops a transcription from being attached to the
+            // wrong chart.
+            if ($encounter <= 0) {
+                $encounter = $this->resolveEncounterFromSession();
+            }
+
+            // Strict validation, restored. Both the patient and the encounter must
+            // exist and the encounter must belong to this patient.
             if ($pid <= 0 || $encounter <= 0 || !$this->validateClinicalContext($pid, $encounter)) {
                 http_response_code(400);
                 echo json_encode(['error' => 'invalid_clinical_context']);
@@ -305,7 +327,13 @@ class TranscribeController
 
     public function status(): void
     {
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+        // Fail closed: with no usable session there is no authenticated user.
+        if ($session === null) {
+            http_response_code(401);
+            echo json_encode(['error' => 'unauthorized']);
+            exit;
+        }
         $userId  = (int) (
             $session->get('authUserID')
             ?? $session->get('authId')
@@ -350,6 +378,12 @@ class TranscribeController
             http_response_code(403);
             echo json_encode(['error' => 'access_denied']);
             return;
+        }
+
+        // Same iframe limitation as submit(): the client sends encounter = 0, so fall back
+        // to the session value before comparing against the job record.
+        if ($encounter <= 0) {
+            $encounter = $this->resolveEncounterFromSession();
         }
 
         // In clinical mode, verify binding to patient and encounter
@@ -545,7 +579,42 @@ class TranscribeController
     }
 
     /**
-     * Validates that the patient and encounter exist in OpenEMR.
+     * Resolves the current encounter ID from the OpenEMR session.
+     *
+     * Set by EncounterSessionUtil::setEncounter() when the encounter tab is opened, and
+     * also mirrored onto the $encounter global. Returns 0 when no encounter is active,
+     * which the caller treats as a validation failure.
+     */
+    private function resolveEncounterFromSession(): int
+    {
+        try {
+            // SessionAccessor probes getActiveSession() and getWrapper(), because the two
+            // supported OpenEMR branches expose only one of them.
+            $session = SessionAccessor::resolve();
+            if ($session === null) {
+                $this->logger->error('[AiAssistant] no usable OpenEMR session accessor on this version');
+                return 0;
+            }
+
+            $fromSession = (int) ($session->get('encounter') ?? 0);
+            if ($fromSession > 0) {
+                return $fromSession;
+            }
+
+            // Fall back to the global that setencounter() also assigns.
+            $fromGlobal = (int) ($GLOBALS['encounter'] ?? 0);
+            return $fromGlobal > 0 ? $fromGlobal : 0;
+        } catch (\Throwable $e) {
+            $this->logger->error('[AiAssistant] encounter session lookup failed: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Validates that the patient and encounter exist, and that they are related.
+     *
+     * The encounter-to-patient binding is what prevents a transcription job from being
+     * attached to another patient's chart.
      */
     private function validateClinicalContext(int $pid, int $encounter): bool
     {

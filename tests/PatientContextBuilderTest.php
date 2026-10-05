@@ -308,19 +308,22 @@ class PatientContextBuilderTest
                 return [];
             }
 
-            // 9. Labs query
+            // 9. Labs query — column set mirrors the real procedure_order /
+            // procedure_report / procedure_result schema, joined through procedure_report.
             if (str_contains($cleanSql, 'from procedure_order')) {
                 $pid = (int) ($params[0] ?? 0);
                 if ($pid === 42) {
                     return [
                         [
-                            'procedure_name' => 'HbA1c',
-                            'result_name'    => 'Hemoglobin A1c',
-                            'result'         => '6.4',
-                            'units'          => '%',
-                            'range'          => '4.0 - 5.6',
-                            'result_status'  => 'final',
-                            'date'           => '2026-09-10 12:00:00',
+                            'procedure_order_type' => 'lab',
+                            'order_diagnosis'      => '',
+                            'result_text'          => 'HbA1c',
+                            'result'               => '6.4',
+                            'units'                => '%',
+                            'range'                => '4.0 - 5.6',
+                            'abnormal'             => 'abnormal',
+                            'result_status'        => 'final',
+                            'date'                 => '2026-09-10 12:00:00',
                         ]
                     ];
                 }

@@ -29,7 +29,8 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
-use OpenEMR\Common\Session\SessionWrapperFactory;
+use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
+use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder;
 use OpenEMR\Modules\AiAssistant\Draft\SoapDraftGenerator;
@@ -78,9 +79,15 @@ class DraftController
         }
 
         // 3. CSRF token check
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $session = SessionAccessor::resolve();
+            // Fail closed: without a usable session the CSRF token cannot be verified.
+            if ($session === null) {
+                http_response_code(400);
+                echo json_encode(['error' => 'invalid_csrf']);
+                return;
+            }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
-        if (!CsrfUtils::verifyCsrfToken($token, $session)) {
+        if (!CsrfCompat::verify($token, $session)) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
             return;

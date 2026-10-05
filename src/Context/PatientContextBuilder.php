@@ -456,11 +456,20 @@ class PatientContextBuilder
 
     /**
      * History Data: Lifestyle, medical, surgical, family, social history.
+     *
+     * Column names come from the real history_data schema, verified identical across
+     * OpenEMR 8.2.0, 8.4.1 and the current tree. There is no `exercise`, `diet`,
+     * `medical_history`, `surgical_history`, `family_history` or `social_history`
+     * column — the lifestyle fields are `exercise_patterns` / `sleep_patterns`, and
+     * medical/surgical/family history lives in the usertextNN/userareaNN slots.
      */
     private function extractClinicalHistory(int $pid): string
     {
-        $sql = "SELECT `tobacco`, `alcohol`, `exercise`, `diet`,
-                       `medical_history`, `surgical_history`, `family_history`, `social_history`
+        $sql = "SELECT `tobacco`, `alcohol`, `coffee`, `exercise_patterns`,
+                       `sleep_patterns`, `recreational_drugs`, `hazardous_activities`,
+                       `additional_history`, `counseling`,
+                       `history_mother`, `history_father`, `history_siblings`,
+                       `history_offspring`, `history_spouse`
                 FROM `history_data`
                 WHERE `pid` = ?
                 ORDER BY `date` DESC
@@ -474,29 +483,55 @@ class PatientContextBuilder
         $r     = $rows[0];
         $items = [];
 
-        if (!empty($r['tobacco'])) {
-            $items[] = 'Tabaco: ' . $this->redactFreeText(trim((string) $r['tobacco']));
-        }
-        if (!empty($r['alcohol'])) {
-            $items[] = 'Alcohol: ' . $this->redactFreeText(trim((string) $r['alcohol']));
-        }
-        if (!empty($r['exercise'])) {
-            $items[] = 'Actividad física: ' . $this->redactFreeText(trim((string) $r['exercise']));
-        }
-        if (!empty($r['medical_history'])) {
-            $items[] = 'Antecedentes médicos: ' . $this->redactFreeText(trim((string) $r['medical_history']));
-        }
-        if (!empty($r['surgical_history'])) {
-            $items[] = 'Antecedentes quirúrgicos: ' . $this->redactFreeText(trim((string) $r['surgical_history']));
-        }
-        if (!empty($r['family_history'])) {
-            $items[] = 'Antecedentes familiares: ' . $this->redactFreeText(trim((string) $r['family_history']));
-        }
-        if (!empty($r['social_history'])) {
-            $items[] = 'Historia social: ' . $this->redactFreeText(trim((string) $r['social_history']));
+        // label => column. Only non-empty values are emitted.
+        $map = [
+            'Tabaco'                  => 'tobacco',
+            'Alcohol'                 => 'alcohol',
+            'Café'                    => 'coffee',
+            'Actividad física'        => 'exercise_patterns',
+            'Sueño'                   => 'sleep_patterns',
+            'Drogas recreativas'      => 'recreational_drugs',
+            'Actividades peligrosas'  => 'hazardous_activities',
+            'Consejo recibido'        => 'counseling',
+            'Antecedentes adicionales' => 'additional_history',
+            'Antecedentes madre'      => 'history_mother',
+            'Antecedentes padre'      => 'history_father',
+            'Antecedentes hermanos'   => 'history_siblings',
+            'Antecedentes hijos'      => 'history_offspring',
+            'Antecedentes cónyuge'    => 'history_spouse',
+        ];
+
+        foreach ($map as $label => $column) {
+            if (empty($r[$column])) {
+                continue;
+            }
+            $items[] = $label . ': ' . $this->redactFreeText(trim((string) $r[$column]));
         }
 
-        if (empty($items)) {
+        // Surgical history: the history_data surgical checkboxes (appendectomy, hernia
+        // repair, ...) plus each of the DC_* "denies" flags, which are meaningful data.
+        $surgical = [];
+        foreach (
+            [
+                'Apendicectomía'      => 'appendectomy',
+                'Colecistectomía'     => 'cholecystestomy',
+                'Hernia repair'       => 'hernia_repair',
+                'Histerectomía'       => 'hysterectomy',
+                'Cirugía cardíaca'   => 'heart_surgery',
+                'Cirugía de cataratas' => 'cataract_surgery',
+                'Tonsilectomía'       => 'tonsillectomy',
+            ] as $label => $column
+        ) {
+            if (!empty($r[$column])) {
+                $surgical[] = $label;
+            }
+        }
+
+        if ($surgical !== []) {
+            $items[] = 'Antecedentes quirúrgicos: ' . implode(', ', $surgical);
+        }
+
+        if ($items === []) {
             return '';
         }
 
@@ -673,10 +708,18 @@ class PatientContextBuilder
      */
     private function extractRecentLabs(int $pid): string
     {
-        $sql = "SELECT po.`procedure_name`, pr.`result_name`, pr.`result`,
-                       pr.`units`, pr.`range`, pr.`result_status`, pr.`date`
+        // Real schema: procedure_result has NO procedure_order_id. The chain is
+        // procedure_order -> procedure_report -> procedure_result, linked by
+        // procedure_order_id then procedure_report_id. There is also no
+        // procedure_name / result_name column; the order title lives in
+        // procedure_order_type (a list_options lookup) and the analyte in
+        // result_text. Verified identical across OpenEMR 8.2.0 / 8.4.1.
+        $sql = "SELECT po.`procedure_order_type`, po.`order_diagnosis`,
+                       pr.`result_text`, pr.`result`, pr.`units`, pr.`range`,
+                       pr.`abnormal`, pr.`result_status`, pr.`date`
                 FROM `procedure_order` po
-                JOIN `procedure_result` pr ON pr.`procedure_order_id` = po.`procedure_order_id`
+                JOIN `procedure_report` rp ON rp.`procedure_order_id` = po.`procedure_order_id`
+                JOIN `procedure_result` pr ON pr.`procedure_report_id` = rp.`procedure_report_id`
                 WHERE po.`patient_id` = ?
                 ORDER BY pr.`date` DESC
                 LIMIT 15";
@@ -688,7 +731,14 @@ class PatientContextBuilder
 
         $out = "### RESULTADOS DE LABORATORIO RECIENTES\n";
         foreach ($rows as $r) {
-            $procName   = $this->redactFreeText(trim((string) ($r['procedure_name'] ?? $r['result_name'] ?? 'Estudio')));
+            $label = trim((string) ($r['result_text'] ?? ''));
+            if ($label === '') {
+                $label = trim((string) ($r['order_diagnosis'] ?? ''));
+            }
+            if ($label === '') {
+                $label = trim((string) ($r['procedure_order_type'] ?? ''));
+            }
+            $procName   = $this->redactFreeText($label !== '' ? $label : 'Estudio');
             $resultVal  = $this->redactFreeText(trim((string) ($r['result'] ?? '')));
             $units      = trim((string) ($r['units'] ?? ''));
             $range      = trim((string) ($r['range'] ?? ''));
@@ -704,6 +754,11 @@ class PatientContextBuilder
             }
             if ($status !== '' && strtolower($status) !== 'final') {
                 $line .= " [{$status}]";
+            }
+            // The `abnormal` flag is the authoritative abnormal marker; status codes like
+            // "final" say nothing about whether the value is out of range.
+            if (!empty($r['abnormal']) && strtolower((string) $r['abnormal']) === 'abnormal') {
+                $line .= ' [ALTERADO]';
             }
             if ($date !== '') {
                 $line .= " ({$date})";
