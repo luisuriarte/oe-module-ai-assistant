@@ -14,6 +14,8 @@
  *  10. "AI-generated draft — review before saving" banner.
  *  11. Soft confirmation on native save if [VERIFY: ...] markers remain.
  *  12. Zero persistence: no localStorage/sessionStorage/IndexedDB.
+ *  13. Consent gate: controls disabled unless ?action=module_status allows transmission.
+ *  14. Discard during transcription cancels polling and abandons the job.
  *
  * @package   OpenEMR
  * @subpackage AiAssistant
@@ -93,7 +95,10 @@
         let elapsedSeconds = 0;
         let activePollingJobId = null;
         let pollingTimer = null;
+        let pollGeneration = 0;
         let lastDraftPayload = null;
+        let consentAllowed = null;
+        let consentMessage = '';
 
         // 4. Render Dictation Bar in DOM
         const formContainer = subjArea.closest('form') || subjArea.parentElement;
@@ -212,6 +217,11 @@
 
         // 9. Start Recording
         async function startRecording() {
+            if (consentAllowed !== true) {
+                alert(consentMessage || 'El dictado por IA no está habilitado en este servidor. Contactá al administrador.');
+                return;
+            }
+
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 alert('La grabación de audio no está soportada en este navegador.');
                 return;
@@ -288,6 +298,8 @@
 
         // 11. Discard Recording
         function discardRecording() {
+            cancelPolling();
+
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.onstop = null; // Do not trigger upload
                 mediaRecorder.stop();
@@ -302,6 +314,22 @@
             timerDisplay.style.display = 'none';
             btnRecord.style.display = 'inline-flex';
             statusText.textContent = 'Grabación descartada.';
+        }
+
+        /**
+         * Aborts an in-flight transcription poll.
+         *
+         * pollGeneration is bumped on every cancel and captured when a poll is scheduled,
+         * so a fetch already in flight cannot resurrect a dead polling loop when its
+         * .then() fires after the cancel.
+         */
+        function cancelPolling() {
+            pollGeneration++;
+            if (pollingTimer !== null) {
+                clearTimeout(pollingTimer);
+                pollingTimer = null;
+            }
+            activePollingJobId = null;
         }
 
         // 12. Upload to M2 and Poll for Transcription
@@ -329,14 +357,28 @@
                     setTimeout(function () { uploadAudio(audioBlob); }, 3000);
                     return;
                 }
+
                 const data = resObj.data;
-                if (data.ok && data.job_id) {
-                    activePollingJobId = data.job_id;
-                    statusText.textContent = 'Transcribiendo audio (Whisper)...';
-                    pollTranscription(data.job_id);
-                } else {
-                    statusText.textContent = 'Error al subir audio: ' + (data.error || 'Respuesta inválida');
+
+                // Backend contract (TranscribeController::submit):
+                //   202 {status:'processing', job_id, timeout}
+                //   200 {status:'completed', job_id, duration_ms}  (non-FastCGI fallback)
+                // There is no 'ok' field on this endpoint.
+                if (!data.job_id) {
+                    statusText.textContent = 'Error al subir audio: ' + (data.error || describeTranscribeError(data.error_code));
+                    return;
                 }
+
+                // Synchronous completion: transcript is already inline
+                if (data.status === 'completed' && data.text !== undefined) {
+                    activePollingJobId = null;
+                    deliverTranscript(data.text);
+                    return;
+                }
+
+                activePollingJobId = data.job_id;
+                statusText.textContent = 'Transcribiendo audio (Whisper)...';
+                pollTranscription(data.job_id);
             })
             .catch(function (err) {
                 statusText.textContent = 'Error de red al subir audio: ' + err.message;
@@ -344,8 +386,19 @@
         }
 
         function pollTranscription(jobId) {
+            // Capture the current generation; a cancel increments it and orphans this loop.
+            const generation = pollGeneration;
+
+            // pid + encounter are REQUIRED by TranscribeController::status in clinical
+            // mode; omitting them returns 403 clinical_context_mismatch.
+            const statusUrl = publicEndpoint
+                + '?action=transcribe_status&site=' + encodeURIComponent(siteId)
+                + '&job_id=' + encodeURIComponent(jobId)
+                + '&pid=' + encodeURIComponent(pid)
+                + '&encounter=' + encodeURIComponent(encounterId);
+
             pollingTimer = setTimeout(function () {
-                fetch(publicEndpoint + '?action=transcribe_status&site=' + encodeURIComponent(siteId) + '&job_id=' + encodeURIComponent(jobId), {
+                fetch(statusUrl, {
                     method: 'GET',
                     credentials: 'same-origin'
                 })
@@ -353,28 +406,87 @@
                     return res.json().then(function (data) { return { status: res.status, data: data }; });
                 })
                 .then(function (resObj) {
-                    if (resObj.status === 429) {
+                    if (generation !== pollGeneration) {
+                        return; // Cancelled while this request was in flight
+                    }
+
+                    const httpStatus = resObj.status;
+                    const data = resObj.data;
+
+                    if (httpStatus === 429) {
                         statusText.textContent = 'Servidor de transcripción ocupado. Esperando turno...';
                         pollTranscription(jobId);
                         return;
                     }
-                    const data = resObj.data;
+
+                    // Job record pruned or TTL expired
+                    if (httpStatus === 404) {
+                        activePollingJobId = null;
+                        statusText.textContent = 'La transcripción expiró o no existe. Volvé a grabar.';
+                        return;
+                    }
+
+                    if (httpStatus === 403) {
+                        activePollingJobId = null;
+                        statusText.textContent = 'Error de autorización al consultar la transcripción: ' + (data.error || '');
+                        return;
+                    }
+
                     if (data.status === 'processing' || data.status === 'pending') {
                         statusText.textContent = 'Procesando transcripción...';
                         pollTranscription(jobId);
                     } else if (data.status === 'completed') {
-                        statusText.textContent = 'Transcripción completada.';
-                        transcriptText.value = data.transcript || '';
-                        transcriptBox.style.display = 'block';
-                        btnGenerate.style.display = 'inline-flex';
+                        // Transcript field is 'text', not 'transcript'
+                        activePollingJobId = null;
+                        deliverTranscript(data.text || '');
                     } else {
-                        statusText.textContent = 'Error en transcripción: ' + (data.error || 'Fallo desconocido');
+                        activePollingJobId = null;
+                        statusText.textContent = 'Error en transcripción: ' + describeTranscribeError(data.error_code);
                     }
                 })
                 .catch(function (err) {
                     statusText.textContent = 'Error al consultar estado: ' + err.message;
                 });
             }, 1000);
+        }
+
+        /**
+         * Populates the editable transcript and reveals the generate action.
+         */
+        function deliverTranscript(text) {
+            activePollingJobId = null;
+            statusText.textContent = 'Transcripción completada.';
+            transcriptText.value = text;
+            transcriptBox.style.display = 'block';
+            btnGenerate.style.display = 'inline-flex';
+        }
+
+        /**
+         * Maps the transcribe endpoints' machine-readable codes to human text.
+         * The endpoints report failures as either {error} (transport level)
+         * or {error_code} (worker level) depending on the failure point.
+         */
+        function describeTranscribeError(code) {
+            const messages = {
+                invalid_csrf: 'Token CSRF inválido. Recargá la página.',
+                unauthorized: 'Sesión no autenticada o vencida.',
+                access_denied: 'No tenés permiso para usar el dictado por IA.',
+                invalid_clinical_context: 'No se pudo validar el paciente o el encuentro.',
+                clinical_context_mismatch: 'El trabajo no corresponde a este paciente o encuentro.',
+                no_audio_file: 'No se recibió el archivo de audio.',
+                invalid_upload: 'Archivo de audio inválido.',
+                file_too_large: 'El audio supera el tamaño máximo permitido.',
+                unsupported_audio_format: 'Formato de audio no soportado.',
+                invalid_whisper_configuration: 'La URL de Whisper no es válida o no es alcanzable.',
+                storage_error: 'Error de almacenamiento en el servidor.',
+                busy: 'El motor de transcripción está ocupado. Reintentá en unos segundos.',
+                worker_timeout: 'La transcripción excedió el tiempo máximo permitido.',
+                worker_exception: 'Error interno del servidor durante la transcripción.',
+                transcription_failed: 'La transcripción falló.',
+                worker_error: 'Error en el proceso de transcripción.',
+                job_not_found: 'El trabajo de transcripción expiró o no existe.'
+            };
+            return (code && messages[code]) ? messages[code] : 'Fallo desconocido';
         }
 
         // 13. Generate SOAP Draft via M5 Endpoint
@@ -569,9 +681,53 @@
         attachSaveInterceptor();
 
         // 18. Attach Event Listeners
+        checkConsentGate();
         btnRecord.addEventListener('click', startRecording);
         btnStop.addEventListener('click', stopRecording);
         btnDiscard.addEventListener('click', discardRecording);
         btnGenerate.addEventListener('click', generateSoapDraft);
+
+        /**
+         * Asks the server whether AI transmission is permitted, and disables the toolbar
+         * when it is not.
+         *
+         * This is presentation only. DraftController::createDraft and
+         * TranscribeController::submit re-check the gate server-side, so a tampered or
+         * stale client state cannot cause PHI to be transmitted. The check exists so the
+         * clinician gets an explanation instead of recording audio that will be rejected
+         * on upload.
+         *
+         * ScriptFilterEvent cannot inject a config object into the page (setScripts() runs
+         * every entry through ModulesApplication::filterSafeLocalModuleFiles(), which
+         * rejects inline scripts), so the state is fetched over the same authenticated
+         * endpoint. Failures fail CLOSED: the toolbar stays disabled until a check succeeds.
+         */
+        function checkConsentGate() {
+            fetch(publicEndpoint + '?action=module_status&site=' + encodeURIComponent(siteId), {
+                method: 'GET',
+                credentials: 'same-origin'
+            })
+            .then(function (res) {
+                return res.json().then(function (data) { return { status: res.status, data: data }; });
+            })
+            .then(function (resObj) {
+                const data = resObj.data || {};
+                consentAllowed = (data.allowed === true);
+                consentMessage = data.message || '';
+
+                if (!consentAllowed) {
+                    btnRecord.disabled = true;
+                    btnRecord.title = consentMessage;
+                    statusText.textContent = consentMessage
+                        || 'El dictado por IA no está habilitado en este servidor.';
+                }
+            })
+            .catch(function () {
+                // Fail closed: never leave recording enabled on an unknown gate state.
+                consentAllowed = false;
+                btnRecord.disabled = true;
+                statusText.textContent = 'No se pudo verificar si el dictado por IA está habilitado.';
+            });
+        }
     }
 }());

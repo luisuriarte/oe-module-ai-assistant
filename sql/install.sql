@@ -2,15 +2,26 @@
 -- Prefix: oe_ai_assistant_
 
 -- Audit log: metadata only, no clinical content by default.
+--
+-- `action` values MUST match the literals passed to AuditLogger::log() across the
+-- codebase. The enum previously declared ('transcribe','draft','chat'), but the
+-- controllers actually write 'transcribe', 'soap_draft', 'test_prompt' and
+-- 'preview_context'. MySQL rejected the three non-matching INSERTs (error 1265
+-- "Data truncated"), which AuditLogger swallowed by design, so those audit
+-- records were silently lost. 'chat' is retained for the M6 chat layer.
+--
+-- `status` likewise: 'blocked' is written by the ConsentGate denials in
+-- DraftController and TranscribeController, and SettingsController writes
+-- 'leak_detected' when the PHI leak check fails.
 CREATE TABLE IF NOT EXISTS `oe_ai_assistant_audit` (
     `id`           BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     `user_id`      INT              NOT NULL DEFAULT 0,
     `patient_id`   INT              NOT NULL DEFAULT 0,
     `encounter_id` INT              NOT NULL DEFAULT 0,
-    `action`       ENUM('transcribe','draft','chat') NOT NULL,
+    `action`       ENUM('transcribe','draft','chat','soap_draft','test_prompt','preview_context') NOT NULL,
     `provider`     VARCHAR(64)      NOT NULL DEFAULT '',
     `model`        VARCHAR(128)     NOT NULL DEFAULT '',
-    `status`       ENUM('ok','error') NOT NULL DEFAULT 'ok',
+    `status`       ENUM('ok','error','blocked','leak_detected') NOT NULL DEFAULT 'ok',
     `error_code`   VARCHAR(64)      NOT NULL DEFAULT '',
     `duration_ms`  INT UNSIGNED     NOT NULL DEFAULT 0,
     `tokens_in`    INT UNSIGNED     NOT NULL DEFAULT 0,
@@ -19,6 +30,7 @@ CREATE TABLE IF NOT EXISTS `oe_ai_assistant_audit` (
     PRIMARY KEY (`id`),
     KEY `idx_audit_patient`  (`patient_id`),
     KEY `idx_audit_user`     (`user_id`),
+    KEY `idx_audit_action`   (`action`),
     KEY `idx_audit_created`  (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -38,6 +38,7 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Events\Core\ScriptFilterEvent;
+use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class SoapFormScriptListener
@@ -92,24 +93,42 @@ class SoapFormScriptListener
             return;
         }
 
-        // Check 3: Module must be configured (consent acknowledged, active provider key saved)
-        $configured = $this->settings->isConfigured();
-        $this->logger->debug('[AiAssistant:SoapListener] isConfigured = ' . ($configured ? 'YES' : 'NO'));
-        // Note: we inject the script regardless of isConfigured() so the toolbar can
-        // display a "module not configured" message. The JS checks for data attributes.
-        // Keeping this purely as a warning, not a gate, so the button always appears.
+        // Check 3: Consent / configuration state, surfaced to the UI as data attributes.
+        //
+        // The script is STILL injected when the gate is closed. That is deliberate: the
+        // clinician needs to see why dictation is unavailable instead of finding the
+        // toolbar simply missing. The JS reads these attributes and disables the controls
+        // with an explanatory message.
+        //
+        // This is presentation only. The real enforcement is server-side in
+        // ConsentGate, called by DraftController::createDraft and
+        // TranscribeController::submit before any PHI is assembled or sent.
+        $consentGate = new ConsentGate($this->settings);
+        $granted     = $consentGate->isTransmissionAllowed();
+        $reason      = $granted ? '' : $consentGate->denialReason();
+        $message     = $granted ? '' : $consentGate->denialMessage();
+
+        $this->logger->debug(
+            '[AiAssistant:SoapListener] consent gate = ' . ($granted ? 'GRANTED' : 'BLOCKED(' . $reason . ')')
+        );
 
         $scriptUrl = $this->buildAssetUrl('public/assets/js/ai-dictation.js');
 
         $scripts = $event->getScripts();
-        if (in_array($scriptUrl, $scripts, true)) {
-            return;
+        if (!in_array($scriptUrl, $scripts, true)) {
+            $scripts[] = $scriptUrl;
+            $event->setScripts($scripts);
+            $this->logger->debug('[AiAssistant:SoapListener] Script injected | url=' . $scriptUrl);
         }
 
-        $scripts[] = $scriptUrl;
-        $event->setScripts($scripts);
-
-        $this->logger->debug('[AiAssistant:SoapListener] Script injected | url=' . $scriptUrl);
+        // The toolbar fetches the gate state from ?action=module_status on init.
+        //
+        // ScriptFilterEvent cannot carry data into the page: setScripts() runs every URL
+        // through ModulesApplication::filterSafeLocalModuleFiles(), which rejects anything
+        // that is not a local module file, so an inline <script> with a config object is
+        // not injectable. TemplatePageEvent::setContextArgument() exists, but neither
+        // load_form.php nor view_form.php reads context arguments when rendering.
+        $this->logger->debug('[AiAssistant:SoapListener] gate exposed via module_status');
     }
 
     /**

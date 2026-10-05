@@ -41,7 +41,7 @@ oe-module-ai-assistant/
 ├── src/
 │   ├── Settings/SettingsManager    Almacén de configuración (CryptoGen para API keys)
 │   ├── Transcription/              Cliente HTTP para whisper.cpp
-│   ├── Provider/                   AiProviderInterface + adaptadores OpenAI / Anthropic / Gemini
+│   ├── Provider/                   AiProviderInterface + adaptadores OpenAI / Anthropic / Gemini / Grok
 │   ├── Context/PatientContextBuilder  Contexto clínico minimizado y desidentificado
 │   ├── Service/SoapDraftService    Transcripción + contexto → JSON S/O/A/P validado
 │   ├── Service/ChatService         Conversación con alcance por paciente
@@ -71,7 +71,7 @@ oe-module-ai-assistant/
 | OpenEMR | ≥ 8.2.0 |
 | PHP | ≥ 8.2.0 (8.3+ en OpenEMR 8.4.x) |
 | Servidor whisper.cpp | Corriendo en `http://127.0.0.1:8178` (solo local) |
-| Proveedor de IA | Clave API de OpenAI / Anthropic / Gemini |
+| Proveedor de IA | Clave API de OpenAI / Anthropic / Gemini / Grok (xAI) |
 
 ### Pasos
 
@@ -108,7 +108,7 @@ oe-module-ai-assistant/
 | `whisper_url` | `http://127.0.0.1:8178` | URL base del servidor whisper.cpp |
 | `whisper_timeout` | `60` | Tiempo de espera en segundos |
 | `whisper_max_audio_sec` | `300` | Duración máxima del audio (5 min) |
-| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` |
+| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` |
 | `openai_base_url` | `https://api.openai.com/v1` | Compatible con servidores auto-alojados |
 | `openai_model` | `gpt-4o` | Nombre del modelo (texto libre) |
 | `openai_temperature` | `0.2` | 0.0 – 2.0 |
@@ -118,6 +118,11 @@ oe-module-ai-assistant/
 | `anthropic_api_key` | — | Cifrada en reposo |
 | `gemini_model` | `gemini-2.0-flash` | |
 | `gemini_api_key` | — | Cifrada en reposo |
+| `grok_base_url` | `https://api.x.ai/v1` | Endpoint xAI (compatible con OpenAI) |
+| `grok_model` | `grok-4.7` | Cualquier id de modelo disponible para tu clave |
+| `grok_temperature` | `0.2` | 0.0 – 2.0 |
+| `grok_max_tokens` | `2048` | Tokens máximos de salida |
+| `grok_api_key` | — | Cifrada en reposo |
 | `context_num_encounters` | `5` | Consultas SOAP anteriores incluidas en el contexto |
 | `context_token_budget` | `4000` | Tokens máximos para el contexto del paciente |
 | `context_include_labs` | `0` | Incluir resultados de laboratorio recientes |
@@ -131,11 +136,13 @@ oe-module-ai-assistant/
 ## Seguridad
 
 - Todo endpoint requiere una sesión válida de OpenEMR, token CSRF y verificación ACL.
+- **Gate de consentimiento:** no se transmiten datos del paciente a ningún proveedor de IA hasta que un administrador marca la casilla de consentimiento en la configuración. Se aplica del lado del servidor mediante `ConsentGate`, dentro de `DraftController::createDraft` y `TranscribeController::submit`, antes de armar cualquier contexto. Los rechazos quedan auditados con `status = 'blocked'`.
 - El audio se conserva como archivo temporal únicamente durante la transcripción y se elimina inmediatamente después.
 - Las claves API se cifran en reposo con `CryptoGen` de OpenEMR (AES-256); nunca se escriben en registros ni se devuelven al navegador.
 - El servidor whisper.cpp está vinculado a `localhost` y nunca se expone a la red.
 - No se envían identificadores directos del paciente (nombre, fecha de nacimiento, dirección, DNI, número de seguro) a los proveedores de IA. El contexto incluye solo edad y sexo.
 - La tabla de auditoría registra únicamente metadatos: usuario, ID de paciente, ID de consulta, acción, proveedor, modelo, estado, conteo de tokens, duración y marca de tiempo.
+- `debug_log_content` viene en `0` por defecto. Mantenelo apagado fuera del desarrollo: si lo activás, se escriben los prompts y respuestas a los registros.
 
 ---
 
@@ -155,7 +162,7 @@ oe-module-ai-assistant/
 | M0 | Informe de inspección, detección de versión, análisis del hook SOAP | ✅ Completado |
 | M1 | Esqueleto del módulo, página de configuración, instalar/desinstalar | ✅ Completado |
 | M2 | TranscriptionClient, endpoint de carga, validaciones | ⏳ Siguiente |
-| M3 | Capa de proveedores (OpenAI / Anthropic / Gemini), claves cifradas | Pendiente |
+| M3 | Capa de proveedores (OpenAI / Anthropic / Gemini / Grok), claves cifradas | Pendiente |
 | M4 | PatientContextBuilder, desidentificación | Pendiente |
 | M5 | UI Capa 1: dictado, editor de transcripción, llenado de campos SOAP | Pendiente |
 | M6 | Capa 2: panel de chat del paciente | Pendiente |

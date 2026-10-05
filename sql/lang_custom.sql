@@ -77,10 +77,18 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Test OpenAI Connection', 'Probar Conexión OpenAI'),
 ('Spanish (Latin American)', 'el', 'Test Anthropic Connection', 'Probar Conexión Anthropic'),
 ('Spanish (Latin American)', 'el', 'Test Gemini Connection', 'Probar Conexión Gemini'),
+('Spanish (Latin American)', 'el', 'Test Grok Connection', 'Probar Conexión Grok'),
 ('Spanish (Latin American)', 'el', '(available in M3)', '(disponible en M3)'),
 ('Spanish (Latin American)', 'el', 'OpenAI-compatible', 'Compatible con OpenAI'),
 ('Spanish (Latin American)', 'el', 'Anthropic', 'Anthropic'),
 ('Spanish (Latin American)', 'el', 'Google Gemini', 'Google Gemini'),
+('Spanish (Latin American)', 'el', 'Grok (xAI)', 'Grok (xAI)'),
+
+-- Consent gate messages (ConsentGate::denialMessage and module_status)
+('Spanish (Latin American)', 'el', 'The AI Assistant administrator has not acknowledged the patient data disclosure. No data was sent. Ask an administrator to enable AI features in Administration -> Modules -> AI Assistant -> Configure.', 'El administrador del Asistente de IA no ha reconocido la divulgación de datos del paciente. No se envió ningún dato. Pedí a un administrador que habilite las funciones de IA en Administración -> Módulos -> Asistente de IA -> Configurar.'),
+('Spanish (Latin American)', 'el', 'No API key is saved for the active AI provider. No data was sent. An administrator must configure the provider key.', 'No hay ninguna clave API guardada para el proveedor de IA activo. No se envió ningún dato. Un administrador debe configurar la clave del proveedor.'),
+('Spanish (Latin American)', 'el', 'AI transmission is currently blocked by the module safety gate.', 'La transmisión por IA está bloqueada actualmente por la puerta de seguridad del módulo.'),
+('Spanish (Latin American)', 'el', 'Access denied.', 'Acceso denegado.'),
 
 -- Patient context section
 ('Spanish (Latin American)', 'el', 'Patient Context Options', 'Opciones de Contexto del Paciente'),

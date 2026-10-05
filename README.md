@@ -41,7 +41,7 @@ oe-module-ai-assistant/
 ├── src/
 │   ├── Settings/SettingsManager    Key/value settings store (CryptoGen for API keys)
 │   ├── Transcription/              HTTP client for whisper.cpp
-│   ├── Provider/                   AiProviderInterface + OpenAI / Anthropic / Gemini adapters
+│   ├── Provider/                   AiProviderInterface + OpenAI / Anthropic / Gemini / Grok adapters
 │   ├── Context/PatientContextBuilder  Minimised, de-identified chart context
 │   ├── Service/SoapDraftService    Transcript + context → validated S/O/A/P JSON
 │   ├── Service/ChatService         Patient-scoped conversation
@@ -71,7 +71,7 @@ oe-module-ai-assistant/
 | OpenEMR | ≥ 8.2.0 |
 | PHP | ≥ 8.2.0 (8.3+ on OpenEMR 8.4.x) |
 | whisper.cpp server | Running on `http://127.0.0.1:8178` (local only) |
-| AI provider | OpenAI / Anthropic / Gemini API key |
+| AI provider | OpenAI / Anthropic / Gemini / Grok (xAI) API key |
 
 ### Steps
 
@@ -108,7 +108,7 @@ oe-module-ai-assistant/
 | `whisper_url` | `http://127.0.0.1:8178` | whisper.cpp server base URL |
 | `whisper_timeout` | `60` | Request timeout in seconds |
 | `whisper_max_audio_sec` | `300` | Maximum audio length (5 min) |
-| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` |
+| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` |
 | `openai_base_url` | `https://api.openai.com/v1` | Supports self-hosted / compatible servers |
 | `openai_model` | `gpt-4o` | Model name (free text) |
 | `openai_temperature` | `0.2` | 0.0 – 2.0 |
@@ -118,6 +118,11 @@ oe-module-ai-assistant/
 | `anthropic_api_key` | — | Encrypted at rest |
 | `gemini_model` | `gemini-2.0-flash` | |
 | `gemini_api_key` | — | Encrypted at rest |
+| `grok_base_url` | `https://api.x.ai/v1` | xAI endpoint (OpenAI-compatible) |
+| `grok_model` | `grok-4.7` | Any model id served to your key |
+| `grok_temperature` | `0.2` | 0.0 – 2.0 |
+| `grok_max_tokens` | `2048` | Max output tokens |
+| `grok_api_key` | — | Encrypted at rest |
 | `context_num_encounters` | `5` | Past SOAP encounters sent as context |
 | `context_token_budget` | `4000` | Max tokens for patient context |
 | `context_include_labs` | `0` | Send recent lab results |
@@ -131,11 +136,13 @@ oe-module-ai-assistant/
 ## Security
 
 - Every endpoint requires a valid OpenEMR session, CSRF token, and ACL check.
+- **Consent gate:** patient data is never transmitted to an AI provider until an administrator ticks the disclosure acknowledgement in settings. Enforced server-side by `ConsentGate` inside `DraftController::createDraft` and `TranscribeController::submit`, before any context is assembled. Denials are audited with `status = 'blocked'`.
 - Audio is held as a temporary file only for the duration of the transcription request, then deleted.
 - API keys are encrypted at rest using OpenEMR's `CryptoGen` (AES-256); never written to logs or returned to the browser.
 - The whisper.cpp server is bound to `localhost` and is never exposed to the network.
 - No direct patient identifiers (name, DOB, address, national ID, insurance number) are sent to AI providers. The context includes age and sex only.
 - Audit table records metadata only: user, patient ID, encounter ID, action, provider, model, status, token counts, duration, timestamp.
+- `debug_log_content` defaults to `0`. Keep it off outside development: turning it on writes prompts and responses to logs.
 
 ---
 
@@ -155,7 +162,7 @@ oe-module-ai-assistant/
 | M0 | Inspection report, version detection, SOAP hook analysis | ✅ Done |
 | M1 | Module skeleton, settings page, install/uninstall | ✅ Done |
 | M2 | TranscriptionClient, upload endpoint, validations | ⏳ Next |
-| M3 | Provider layer (OpenAI / Anthropic / Gemini), encrypted keys | Pending |
+| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok), encrypted keys | Pending |
 | M4 | PatientContextBuilder, de-identification | Pending |
 | M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Pending |
 | M6 | Layer 2: patient chat panel | Pending |

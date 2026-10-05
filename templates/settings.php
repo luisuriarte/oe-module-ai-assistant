@@ -126,7 +126,7 @@ use OpenEMR\Core\Header;
                 <div class="form-group">
                     <label for="active_provider"><strong><?php echo xlt('Active Provider'); ?></strong></label>
                     <select class="form-control w-auto" id="active_provider" name="active_provider">
-                        <?php foreach (['openai' => 'OpenAI-compatible', 'anthropic' => 'Anthropic', 'gemini' => 'Google Gemini'] as $val => $label): ?>
+                        <?php foreach (['openai' => 'OpenAI-compatible', 'anthropic' => 'Anthropic', 'gemini' => 'Google Gemini', 'grok' => 'Grok (xAI)'] as $val => $label): ?>
                         <option value="<?php echo attr($val); ?>"
                             <?php echo ($current['active_provider'] ?? 'openai') === $val ? 'selected' : ''; ?>>
                             <?php echo text($label); ?>
@@ -266,6 +266,49 @@ use OpenEMR\Core\Header;
                         <?php echo xlt('Test Gemini Connection'); ?>
                     </button>
                     <span class="provider-test-result ml-2" data-provider="gemini"></span>
+                </fieldset>
+
+                <!-- Grok (xAI) -->
+                <fieldset class="border p-2 mb-3 provider-fields" id="fields-grok">
+                    <legend class="w-auto px-2"><?php echo xlt('Grok (xAI)'); ?></legend>
+                    <div class="row">
+                        <div class="col-md-5 form-group">
+                            <label><?php echo xlt('Base URL'); ?></label>
+                            <input type="url" class="form-control" name="grok_base_url"
+                                   value="<?php echo attr($current['grok_base_url'] ?? 'https://api.x.ai/v1'); ?>">
+                        </div>
+                        <div class="col-md-3 form-group">
+                            <label><?php echo xlt('Model'); ?></label>
+                            <input type="text" class="form-control" name="grok_model"
+                                   value="<?php echo attr($current['grok_model'] ?? 'grok-4.7'); ?>">
+                        </div>
+                        <div class="col-md-2 form-group">
+                            <label><?php echo xlt('Temperature'); ?></label>
+                            <input type="number" step="0.1" min="0" max="2" class="form-control" name="grok_temperature"
+                                   value="<?php echo attr($current['grok_temperature'] ?? '0.2'); ?>">
+                        </div>
+                        <div class="col-md-2 form-group">
+                            <label><?php echo xlt('Max tokens'); ?></label>
+                            <input type="number" min="256" max="16384" class="form-control" name="grok_max_tokens"
+                                   value="<?php echo attr($current['grok_max_tokens'] ?? '2048'); ?>">
+                        </div>
+                        <div class="col-md-6 form-group">
+                            <label>
+                                <?php echo xlt('API Key'); ?>
+                                <?php if ($keyStatus['grok_api_key']): ?>
+                                <span class="key-saved-badge"><?php echo xlt('Key saved'); ?></span>
+                                <?php endif; ?>
+                            </label>
+                            <input type="password" class="form-control" name="grok_api_key"
+                                   placeholder="<?php echo attr($keyStatus['grok_api_key'] ? xlt('Leave blank to keep existing key') : xlt('Enter API key')); ?>"
+                                   autocomplete="new-password">
+                            <small class="form-text text-muted"><?php echo xlt('Never stored in logs or sent to the browser.'); ?></small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="grok">
+                        <?php echo xlt('Test Grok Connection'); ?>
+                    </button>
+                    <span class="provider-test-result ml-2" data-provider="grok"></span>
                 </fieldset>
             </div>
         </div>
@@ -411,7 +454,7 @@ use OpenEMR\Core\Header;
         </div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                <?php echo xlt('Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, or Anthropic). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.'); ?>
+                <?php echo xlt('Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, Anthropic, or Grok). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.'); ?>
             </p>
             <div class="row mb-3">
                 <div class="col-md-3 form-group">
@@ -420,6 +463,7 @@ use OpenEMR\Core\Header;
                         <option value="gemini" <?php echo ($current['active_provider'] ?? '') === 'gemini' ? 'selected' : ''; ?>>Google Gemini</option>
                         <option value="openai" <?php echo ($current['active_provider'] ?? '') === 'openai' ? 'selected' : ''; ?>>OpenAI-compatible</option>
                         <option value="anthropic" <?php echo ($current['active_provider'] ?? '') === 'anthropic' ? 'selected' : ''; ?>>Anthropic</option>
+                        <option value="grok" <?php echo ($current['active_provider'] ?? '') === 'grok' ? 'selected' : ''; ?>>Grok (xAI)</option>
                     </select>
                 </div>
                 <div class="col-md-9 form-group">
@@ -494,7 +538,7 @@ use OpenEMR\Core\Header;
     // 1. Show/hide provider fieldsets based on active provider selection
     const select = document.getElementById('active_provider');
     function toggle() {
-        ['openai', 'anthropic', 'gemini'].forEach(function (p) {
+        ['openai', 'anthropic', 'gemini', 'grok'].forEach(function (p) {
             const el = document.getElementById('fields-' + p);
             if (el) el.style.display = (select.value === p) ? '' : 'none';
         });
@@ -704,7 +748,7 @@ use OpenEMR\Core\Header;
         });
     }
 
-    // 4. Provider connection test buttons (Gemini / OpenAI / Anthropic)
+    // 4. Provider connection test buttons (Gemini / OpenAI / Anthropic / Grok)
     document.querySelectorAll('.btn-test-provider').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const provider = btn.dataset.provider;

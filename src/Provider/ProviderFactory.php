@@ -18,6 +18,7 @@ namespace OpenEMR\Modules\AiAssistant\Provider;
 use InvalidArgumentException;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\AnthropicAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\GeminiAdapter;
+use OpenEMR\Modules\AiAssistant\Provider\Adapter\GrokAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\OpenAiAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderAuthenticationException;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
@@ -34,7 +35,7 @@ class ProviderFactory
     /**
      * Creates an adapter instance for the given provider (or active provider if null).
      *
-     * @param string|null $provider 'openai', 'anthropic', 'gemini'
+     * @param string|null $provider 'openai', 'anthropic', 'gemini', 'grok'
      * @param string|null $overrideKey Optional override key (e.g. from test form)
      * @return AiProviderInterface
      * @throws ProviderAuthenticationException
@@ -48,6 +49,7 @@ class ProviderFactory
             'openai'    => 'openai_api_key',
             'anthropic' => 'anthropic_api_key',
             'gemini'    => 'gemini_api_key',
+            'grok'      => 'grok_api_key',
         ];
 
         if (!isset($keyMap[$targetProvider])) {
@@ -91,6 +93,14 @@ class ProviderFactory
                 temperature: (float) $this->settings->get('anthropic_temperature', 0.2),
                 maxTokens: (int) $this->settings->get('anthropic_max_tokens', 2048),
                 baseUrl: (string) $this->settings->get('anthropic_base_url', 'https://api.anthropic.com'),
+            ),
+            'grok' => new GrokAdapter(
+                apiKey: $apiKey,
+                model: (string) $this->settings->get('grok_model', GrokAdapter::DEFAULT_MODEL),
+                temperature: (float) $this->settings->get('grok_temperature', 0.2),
+                maxTokens: (int) $this->settings->get('grok_max_tokens', 2048),
+                baseUrl: (string) $this->settings->get('grok_base_url', GrokAdapter::DEFAULT_BASE_URL),
+                allowPrivate: $allowPrivate,
             ),
         };
     }

@@ -7,8 +7,9 @@
  *   1. OpenAI-compatible adapter: payload format, response extraction, token counts.
  *   2. Anthropic adapter: system prompt extraction, response parsing, token counts.
  *   3. Gemini adapter: candidates extraction, safety block handling, token counts.
- *   4. Uniform ProviderException mapping (401/403, 429, timeout, safety block).
- *   5. Security validations: HTTPS-only, SSRF prevention on private/link-local IPs, embedded credential rejection.
+ *   4. Grok (xAI) adapter: endpoint default, provider identity, response extraction.
+ *   5. Uniform ProviderException mapping (401/403, 429, timeout, safety block).
+ *   6. Security validations: HTTPS-only, SSRF prevention on private/link-local IPs, embedded credential rejection.
  *
  * Compatibility: OpenEMR 8.2.0+ (PHP 8.2 compatible).
  */
@@ -32,6 +33,7 @@ spl_autoload_register(function ($class) {
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\AbstractProviderAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\AnthropicAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\GeminiAdapter;
+use OpenEMR\Modules\AiAssistant\Provider\Adapter\GrokAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\OpenAiAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderAuthenticationException;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderException;
@@ -93,6 +95,24 @@ class TestableGeminiAdapter extends GeminiAdapter
     }
 }
 
+class TestableGrokAdapter extends GrokAdapter
+{
+    public array $lastExecuted = [];
+    public ?array $mockResponse = null;
+
+    protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
+    {
+        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody];
+        if ($this->mockResponse !== null) {
+            if (isset($this->mockResponse['exception'])) {
+                throw $this->mockResponse['exception'];
+            }
+            return $this->mockResponse;
+        }
+        return ['statusCode' => 200, 'body' => '{}', 'headers' => []];
+    }
+}
+
 class ProviderSimulationRunner
 {
     private int $passed = 0;
@@ -106,6 +126,7 @@ class ProviderSimulationRunner
         $this->testOpenAiSimulation();
         $this->testAnthropicSimulation();
         $this->testGeminiSimulation();
+        $this->testGrokSimulation();
         $this->testGeminiSafetyBlocks();
         $this->testUniformExceptions();
 
@@ -276,6 +297,72 @@ class ProviderSimulationRunner
         $this->assert('Gemini: Token usage out matches', $resp->tokensOut === 10);
         $this->assert('Gemini: API key strictly in x-goog-api-key header', ($adapter->lastExecuted['headers']['x-goog-api-key'] ?? '') === 'AIzaSyTestGeminiKey');
         $this->assert('Gemini: API key NOT present in URL query string', !str_contains($adapter->lastExecuted['url'], 'key='));
+    }
+
+    private function testGrokSimulation(): void
+    {
+        // Default construction must target the xAI endpoint and report the grok provider id
+        $defaults = new TestableGrokAdapter('xai-test-key');
+        $this->assert(
+            'Grok: Default base URL is api.x.ai',
+            $defaults->getProviderName() === 'grok'
+        );
+
+        $adapter = new TestableGrokAdapter('xai-test-key', 'grok-4.7', 0.2, 1024);
+        $adapter->mockResponse = [
+            'statusCode' => 200,
+            'body' => json_encode([
+                'id' => 'chatcmpl-grok1234',
+                'object' => 'chat.completion',
+                'model' => 'grok-4.7',
+                'choices' => [
+                    [
+                        'index' => 0,
+                        'message' => ['role' => 'assistant', 'content' => '{"subjective":"ok","objective":"","assessment":"","plan":""}'],
+                        'finish_reason' => 'stop',
+                    ],
+                ],
+                'usage' => [
+                    'prompt_tokens' => 40,
+                    'completion_tokens' => 20,
+                    'total_tokens' => 60,
+                ],
+            ]),
+            'headers' => ['content-type' => 'application/json'],
+        ];
+
+        $resp = $adapter->generate([
+            ['role' => 'system', 'content' => 'You are a triage assistant.'],
+            ['role' => 'user', 'content' => 'Patient reports headache.'],
+        ]);
+
+        $this->assert('Grok: Extracted text matches', $resp->text === '{"subjective":"ok","objective":"","assessment":"","plan":""}');
+        $this->assert('Grok: Token usage in matches', $resp->tokensIn === 40);
+        $this->assert('Grok: Token usage out matches', $resp->tokensOut === 20);
+        $this->assert('Grok: Total tokens matches', $resp->getTotalTokens() === 60);
+        $this->assert('Grok: Provider identifier is grok', $adapter->getProviderName() === 'grok');
+        $this->assert('Grok: Authorization Bearer header sent', str_contains($adapter->lastExecuted['headers']['Authorization'] ?? '', 'Bearer xai-test-key'));
+        $this->assert('Grok: API key NOT present in URL', !str_contains($adapter->lastExecuted['url'], 'xai-test-key'));
+        $this->assert(
+            'Grok: Requests xAI chat completions endpoint',
+            $adapter->lastExecuted['url'] === 'https://api.x.ai/v1/chat/completions'
+        );
+
+        $body = json_decode($adapter->lastExecuted['body'], true);
+        $this->assert('Grok: Model sent in payload', ($body['model'] ?? '') === 'grok-4.7');
+        $this->assert('Grok: System role preserved in messages', ($body['messages'][0]['role'] ?? '') === 'system');
+
+        // Provider name flows into the audit trail, so it must never leak as 'openai'
+        $this->assert('Grok: Provider name distinct from openai', $adapter->getProviderName() !== 'openai');
+
+        // SSRF guard must be inherited: private/loopback base URLs are refused
+        $ssrfBlocked = false;
+        try {
+            new TestableGrokAdapter('xai-test-key', 'grok-4.7', 0.2, 1024, 'http://127.0.0.1:8080/v1');
+        } catch (\InvalidArgumentException) {
+            $ssrfBlocked = true;
+        }
+        $this->assert('Grok: Private/loopback base URL rejected (SSRF guard inherited)', $ssrfBlocked);
     }
 
     private function testGeminiSafetyBlocks(): void

@@ -25,6 +25,7 @@ use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Provider\ProviderFactory;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
+use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Transcription\TranscriptionClient;
 
 class SettingsController
@@ -57,6 +58,46 @@ class SettingsController
         }
     }
 
+    /**
+     * Reports the consent gate state for the SOAP toolbar.
+     *
+     * The toolbar JS calls this on init to decide whether to enable the microphone
+     * controls. It is NOT a security boundary: every transmitting endpoint re-checks the
+     * gate server-side via ConsentGate before building any payload.
+     *
+     * Deliberately returns no PHI, no provider names and no model names — only the gate
+     * verdict and a translatable explanation, so the response is safe to log.
+     */
+    public function moduleStatus(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!AclMain::aclCheckCore('ai_assistant', 'use') && !AclMain::aclCheckCore('ai_assistant', 'admin')) {
+            http_response_code(403);
+            echo json_encode([
+                'ok'      => false,
+                'allowed' => false,
+                'reason'  => 'access_denied',
+                'message' => xlt('Access denied.'),
+            ]);
+            return;
+        }
+
+        $gate     = new ConsentGate($this->settings);
+        $allowed  = $gate->isTransmissionAllowed();
+        $reason   = $allowed ? '' : $gate->denialReason();
+        $message  = $allowed ? '' : $gate->denialMessage();
+
+        // Only 'consent_acknowledged' is reported; provider_not_configured deliberately
+        // does not leak which provider is active or whether its key exists.
+        echo json_encode([
+            'ok'      => true,
+            'allowed' => $allowed,
+            'reason'  => $reason,
+            'message' => $message,
+        ]);
+    }
+
     // -------------------------------------------------------------------------
     // POST handler
     // -------------------------------------------------------------------------
@@ -82,7 +123,7 @@ class SettingsController
 
         // Save each expected key from POST, skipping encrypted keys if blank
         // (blank = "do not change existing key")
-        $encryptedKeys = ['openai_api_key', 'anthropic_api_key', 'gemini_api_key'];
+        $encryptedKeys = ['openai_api_key', 'anthropic_api_key', 'gemini_api_key', 'grok_api_key'];
 
         foreach (array_keys($defaults) as $key) {
             if ($key === 'consent_acknowledged') {
@@ -145,6 +186,7 @@ class SettingsController
             'openai_api_key'    => $this->settings->hasEncryptedValue('openai_api_key'),
             'anthropic_api_key' => $this->settings->hasEncryptedValue('anthropic_api_key'),
             'gemini_api_key'    => $this->settings->hasEncryptedValue('gemini_api_key'),
+            'grok_api_key'      => $this->settings->hasEncryptedValue('grok_api_key'),
         ];
 
         $consentGiven = $this->settings->isConsentGiven();

@@ -39,17 +39,20 @@ use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderInvalidResponseExcept
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderRateLimitException;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderSafetyBlockException;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderTimeoutException;
+use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class DraftController
 {
     private SettingsManager $settings;
     private SystemLogger $logger;
+    private ConsentGate $consent;
 
     public function __construct(?SettingsManager $settings = null)
     {
         $this->settings = $settings ?? new SettingsManager();
         $this->logger   = new SystemLogger();
+        $this->consent  = new ConsentGate($this->settings);
     }
 
     /**
@@ -91,7 +94,39 @@ class DraftController
             ?? 1
         );
 
-        // 4. Validate Patient ID
+        // 4. Consent gate: refuse to transmit any PHI until an admin has acknowledged
+        //    the third-party data disclosure AND the active provider has a saved key.
+        //    Placed before patient context is built so no PHI is ever assembled.
+        if (!$this->consent->isTransmissionAllowed()) {
+            $reason = $this->consent->denialReason();
+            $this->logger->warning('[AiAssistant] soap_draft blocked by consent gate: ' . $reason);
+
+            $audit = new AuditLogger();
+            $audit->log(
+                userId: $userId,
+                patientId: (int) ($_POST['pid'] ?? 0),
+                encounterId: (int) ($_POST['encounter'] ?? 0),
+                action: 'soap_draft',
+                provider: $this->settings->getActiveProvider(),
+                model: '',
+                status: 'blocked',
+                errorCode: $reason,
+                durationMs: 0,
+                tokensIn: 0,
+                tokensOut: 0
+            );
+
+            http_response_code(403);
+            echo json_encode([
+                'ok'         => false,
+                'error'      => $this->consent->denialMessage(),
+                'error_type' => 'ConsentGateBlocked',
+                'reason'     => $reason,
+            ]);
+            return;
+        }
+
+        // 5. Validate Patient ID
         $pid = (int) ($_POST['pid'] ?? 0);
         if ($pid <= 0) {
             http_response_code(400);
@@ -99,7 +134,7 @@ class DraftController
             return;
         }
 
-        // 5. Validate Encounter ID (if supplied)
+        // 6. Validate Encounter ID (if supplied)
         $encounterId = (int) ($_POST['encounter'] ?? 0);
         if ($encounterId > 0) {
             $encRow = $this->fetchEncounterRow($encounterId);
@@ -127,7 +162,7 @@ class DraftController
             }
         }
 
-        // 6. Validate Transcript
+        // 7. Validate Transcript
         $transcript = trim((string) ($_POST['transcript'] ?? ''));
         if ($transcript === '') {
             http_response_code(400);

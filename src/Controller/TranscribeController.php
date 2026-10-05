@@ -28,6 +28,7 @@ use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
+use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 use OpenEMR\Modules\AiAssistant\Transcription\TranscriptionClient;
 
@@ -36,12 +37,14 @@ class TranscribeController
     private SettingsManager $settings;
     private AuditLogger $audit;
     private SystemLogger $logger;
+    private ConsentGate $consent;
 
     public function __construct()
     {
         $this->settings = new SettingsManager();
         $this->audit    = new AuditLogger();
         $this->logger   = new SystemLogger();
+        $this->consent  = new ConsentGate($this->settings);
     }
 
     // -------------------------------------------------------------------------
@@ -97,6 +100,36 @@ class TranscribeController
                 echo json_encode(['error' => 'access_denied']);
                 return;
             }
+
+            // Consent gate: clinical dictation carries patient audio, so it is gated
+            // exactly like SOAP draft generation. Test mode above is intentionally NOT
+            // gated: it uploads synthetic audio with patient_id = 0 and sends nothing to
+            // a third-party provider, so admins need it working to diagnose the module.
+            if (!$this->consent->isTransmissionAllowed()) {
+                $reason = $this->consent->denialReason();
+                $this->logger->warning('[AiAssistant] transcribe_submit blocked by consent gate: ' . $reason);
+
+                $this->audit->log(
+                    $userId,
+                    (int) ($_POST['pid'] ?? 0),
+                    (int) ($_POST['encounter'] ?? 0),
+                    'transcribe',
+                    'whisper',
+                    'whisper',
+                    'blocked',
+                    $reason,
+                    0
+                );
+
+                http_response_code(403);
+                echo json_encode([
+                    'error'      => $this->consent->denialMessage(),
+                    'error_code' => 'consent_gate_blocked',
+                    'reason'     => $reason,
+                ]);
+                return;
+            }
+
             $pid       = (int) ($_POST['pid'] ?? 0);
             $encounter = (int) ($_POST['encounter'] ?? 0);
 
