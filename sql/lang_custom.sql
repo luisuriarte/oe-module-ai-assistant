@@ -18,8 +18,8 @@ START TRANSACTION;
 -- ============================================================================
 -- 1. Ensure the Spanish (Latin American) language record exists
 -- ============================================================================
-INSERT IGNORE INTO lang_languages (lang_code, lang_description)
-VALUES ('el', 'Spanish (Latin American)');
+-- INSERT IGNORE INTO lang_languages (lang_code, lang_description)
+-- VALUES ('el', 'Spanish (Latin American)');
 
 -- ============================================================================
 -- 2. Insert translations into lang_custom
