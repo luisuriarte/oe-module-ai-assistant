@@ -39,6 +39,12 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
     protected int $timeoutSec;
     protected ?SystemLogger $logger = null;
 
+    /**
+     * Total attempts for an individual request. Only transient 5xx responses are retried
+     * (see shouldRetryHttpError); 4xx, 429, 401/403 and transport failures never are.
+     */
+    protected const MAX_HTTP_RETRY_ATTEMPTS = 2;
+
     public function __construct(
         string $apiKey,
         string $model,
@@ -193,6 +199,15 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
     /**
      * Executes a cURL request with strict security settings.
      *
+     * Transient 5xx responses (provider overload, internal errors) are retried once with a
+     * short back-off. That is safe here: every call races a fresh generation (no side
+     * effects), and a 5xx fails fast in milliseconds — never after a long wait — so the
+     * retry adds little wall time and stays inside the request/Cloudflare budget.
+     *
+     * Nothing else is retried: authentication (401/403), rate limits (429) and transport
+     * failures are surfaced on the first attempt, and other 4xx responses are also
+     * surfaced immediately — retrying them would just repeat the same parameter error.
+     *
      * @param string                $url
      * @param string                $method 'GET' or 'POST'
      * @param array<string, string> $headers
@@ -208,126 +223,147 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
         ?string $jsonBody = null,
         ?int $customTimeout = null
     ): array {
-        $ch = curl_init();
         $timeout = $customTimeout ?? $this->timeoutSec;
-
-        $responseHeaders = [];
-        $headerCallback = function ($curl, string $headerLine) use (&$responseHeaders) {
-            $len = strlen($headerLine);
-            $parts = explode(':', $headerLine, 2);
-            if (count($parts) === 2) {
-                $responseHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
-            }
-            return $len;
-        };
-
-        $curlHeaders = [];
-        foreach ($headers as $k => $v) {
-            $curlHeaders[] = "{$k}: {$v}";
-        }
-
-        $opts = [
-            CURLOPT_URL            => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADERFUNCTION => $headerCallback,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_FOLLOWLOCATION => false, // No blind redirects
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT        => $timeout,
-            CURLOPT_HTTPHEADER     => $curlHeaders,
-            CURLOPT_USERAGENT      => 'OpenEMR-AiAssistant-Provider/1.0',
-        ];
-
-        if ($method === 'POST') {
-            $opts[CURLOPT_POST] = true;
-            if ($jsonBody !== null) {
-                $opts[CURLOPT_POSTFIELDS] = $jsonBody;
-            }
-        } elseif ($method === 'GET') {
-            $opts[CURLOPT_HTTPGET] = true;
-        }
-
-        curl_setopt_array($ch, $opts);
-
-        $body       = curl_exec($ch);
-        $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError  = curl_error($ch);
-        $curlErrno  = curl_errno($ch);
-        curl_close($ch);
-
         $providerName = $this->getProviderName();
 
-        // 1. Connection / Timeout errors
-        if ($curlError !== '') {
-            if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
-                throw (new ProviderTimeoutException(
-                    "Request to {$providerName} timed out after {$timeout} seconds.",
+        for ($attempt = 1; $attempt <= self::MAX_HTTP_RETRY_ATTEMPTS; $attempt++) {
+            $ch = curl_init();
+
+            $responseHeaders = [];
+            $headerCallback = function ($curl, string $headerLine) use (&$responseHeaders) {
+                $len = strlen($headerLine);
+                $parts = explode(':', $headerLine, 2);
+                if (count($parts) === 2) {
+                    $responseHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
+                }
+                return $len;
+            };
+
+            $curlHeaders = [];
+            foreach ($headers as $k => $v) {
+                $curlHeaders[] = "{$k}: {$v}";
+            }
+
+            $opts = [
+                CURLOPT_URL            => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HEADERFUNCTION => $headerCallback,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_FOLLOWLOCATION => false, // No blind redirects
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_HTTPHEADER     => $curlHeaders,
+                CURLOPT_USERAGENT      => 'OpenEMR-AiAssistant-Provider/1.0',
+            ];
+
+            if ($method === 'POST') {
+                $opts[CURLOPT_POST] = true;
+                if ($jsonBody !== null) {
+                    $opts[CURLOPT_POSTFIELDS] = $jsonBody;
+                }
+            } elseif ($method === 'GET') {
+                $opts[CURLOPT_HTTPGET] = true;
+            }
+
+            curl_setopt_array($ch, $opts);
+
+            $body       = curl_exec($ch);
+            $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError  = curl_error($ch);
+            $curlErrno  = curl_errno($ch);
+            curl_close($ch);
+
+            // 1. Connection / Timeout errors
+            if ($curlError !== '') {
+                if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
+                    throw (new ProviderTimeoutException(
+                        "Request to {$providerName} timed out after {$timeout} seconds.",
+                        $curlErrno,
+                        null,
+                        $providerName
+                    ))->setErrorDetail("timeout_sec={$timeout}");
+                }
+                throw new ProviderException(
+                    "Network error connecting to {$providerName}: {$curlError}",
                     $curlErrno,
                     null,
                     $providerName
-                ))->setErrorDetail("timeout_sec={$timeout}");
+                );
             }
-            throw new ProviderException(
-                "Network error connecting to {$providerName}: {$curlError}",
-                $curlErrno,
-                null,
-                $providerName
-            );
-        }
 
-        // 2. Authentication errors (401, 403)
-        if ($statusCode === 401 || $statusCode === 403) {
-            throw (new ProviderAuthenticationException(
-                "Authentication failed with {$providerName} (HTTP {$statusCode}). Check your API key.",
-                $statusCode,
-                null,
-                $providerName
-            ))->setErrorDetail("http_status={$statusCode}");
-        }
-
-        // 3. Rate limiting (429)
-        if ($statusCode === 429) {
-            $retryAfter = null;
-            if (!empty($responseHeaders['retry-after'])) {
-                $retryAfter = (int) $responseHeaders['retry-after'];
+            // 2. Authentication errors (401, 403)
+            if ($statusCode === 401 || $statusCode === 403) {
+                throw (new ProviderAuthenticationException(
+                    "Authentication failed with {$providerName} (HTTP {$statusCode}). Check your API key.",
+                    $statusCode,
+                    null,
+                    $providerName
+                ))->setErrorDetail("http_status={$statusCode}");
             }
-            throw (new ProviderRateLimitException(
-                "{$providerName} rate limit or quota exceeded (HTTP 429).",
-                $statusCode,
-                null,
-                $providerName,
-                $retryAfter
-            ))->setErrorDetail("http_status=429");
+
+            // 3. Rate limiting (429)
+            if ($statusCode === 429) {
+                $retryAfter = null;
+                if (!empty($responseHeaders['retry-after'])) {
+                    $retryAfter = (int) $responseHeaders['retry-after'];
+                }
+                throw (new ProviderRateLimitException(
+                    "{$providerName} rate limit or quota exceeded (HTTP 429).",
+                    $statusCode,
+                    null,
+                    $providerName,
+                    $retryAfter
+                ))->setErrorDetail("http_status=429");
+            }
+
+            // 4. Server errors (5xx): transient provider outage — one retry, then throw.
+            if ($statusCode >= 500) {
+                if (self::shouldRetryHttpError($statusCode, $attempt)) {
+                    usleep(1000000); // 1 s back-off; 5xx fail fast, so this stays inside the budget
+                    continue;
+                }
+                throw (new ProviderInvalidResponseException(
+                    sprintf('%s service unavailable or internal error (HTTP %d)', $providerName, $statusCode),
+                    $statusCode,
+                    null,
+                    $providerName
+                ))->setErrorDetail(self::providerErrorDetail((string) $body, $statusCode));
+            }
+
+            if ($statusCode < 200 || $statusCode >= 300) {
+                // A 4xx carries the real reason (model not found, bad parameter, unsupported
+                // endpoint) as an error type/code. Only that typed fragment is kept: the
+                // provider's message body is never retained because it can echo the prompt.
+                throw (new ProviderInvalidResponseException(
+                    sprintf('%s rejected the request (HTTP %d)', $providerName, $statusCode),
+                    $statusCode,
+                    null,
+                    $providerName
+                ))->setErrorDetail(self::providerErrorDetail($body, $statusCode));
+            }
+
+            return [
+                'statusCode' => $statusCode,
+                'body'       => (string) $body,
+                'headers'    => $responseHeaders,
+            ];
         }
 
-        // 4. Server errors (5xx) or unexpected status
-        if ($statusCode >= 500) {
-            throw (new ProviderInvalidResponseException(
-                sprintf('%s service unavailable or internal error (HTTP %d)', $providerName, $statusCode),
-                $statusCode,
-                null,
-                $providerName
-            ))->setErrorDetail(self::providerErrorDetail((string) $body, $statusCode));
-        }
+        // Unreachable: the loop either returns or throws on every path.
+        throw new ProviderException("Unexpected request failure to {$providerName}.");
+    }
 
-        if ($statusCode < 200 || $statusCode >= 300) {
-            // A 4xx carries the real reason (model not found, bad parameter, unsupported
-            // endpoint) as an error type/code. Only that typed fragment is kept: the
-            // provider's message body is never retained because it can echo the prompt.
-            throw (new ProviderInvalidResponseException(
-                sprintf('%s rejected the request (HTTP %d)', $providerName, $statusCode),
-                $statusCode,
-                null,
-                $providerName
-            ))->setErrorDetail(self::providerErrorDetail($body, $statusCode));
-        }
-
-        return [
-            'statusCode' => $statusCode,
-            'body'       => (string) $body,
-            'headers'    => $responseHeaders,
-        ];
+    /**
+     * Retry policy for executeRequest.
+     *
+     * Arbitrates attempts: transient 5xx responses get exactly one retry; everything else
+     * (4xx, 429, 401/403) returns on first sight. Holed out of the request loop so the
+     * policy stays unit-testable without a live connection.
+     */
+    public static function shouldRetryHttpError(int $statusCode, int $attempt): bool
+    {
+        return $statusCode >= 500 && $attempt < 2;
     }
 
     /**

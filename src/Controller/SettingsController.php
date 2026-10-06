@@ -101,6 +101,11 @@ class SettingsController
             // 3 minutes that silently disagreed with the server-side validation.
             'max_audio_sec' => (int) $this->settings->get('whisper_max_audio_sec', 180),
             'i18n'          => self::dictationStrings(),
+            // Layer 2 is optional: the chat widget stays hidden unless an admin enabled it.
+            // Chat strings ride the same endpoint for the same reason dictation strings
+            // do - a static JS file cannot be given an inline config object.
+            'chat_enabled'  => (string) $this->settings->get('chat_enabled', '0') === '1',
+            'chat_i18n'     => self::chatStrings(),
         ]);
     }
 
@@ -197,6 +202,38 @@ class SettingsController
             'err_worker_error'              => xlt('Error in the transcription process.'),
             'err_job_not_found'             => xlt('The transcription job expired or does not exist.'),
             'err_unknown'                   => xlt('Unknown failure'),
+        ];
+    }
+    /**
+     * Server-side translations for the Layer 2 chat panel.
+     *
+     * Delivered through the same ?action=module_status endpoint as the dictation strings,
+     * and under a separate key so the two toolbars can be fetched together without one
+     * overwriting the other. Payload only - no settings, no provider, no PHI.
+     *
+     * @return array<string, string>
+     */
+    private static function chatStrings(): array
+    {
+        return [
+            'title'         => xlt('Clinical AI Chat'),
+            'toggle'        => xlt('Patient chat'),
+            'open'          => xlt('Open patient chat'),
+            'close'         => xlt('Close'),
+            'placeholder'   => xlt('Ask a question about this patient...'),
+            'send'          => xlt('Send'),
+            'thinking'      => xlt('Reviewing the chart...'),
+            'empty_state'   => xlt('Answers come only from the chart context and cite the section they came from.'),
+            'sources'       => xlt('Sources'),
+            'gate_blocked'  => xlt('AI chat is not enabled on this server. Contact your administrator.'),
+            'gate_unknown'  => xlt('Could not verify whether AI chat is enabled.'),
+            'disabled'      => xlt('The patient chat panel is disabled. An administrator must enable it in AI Assistant Settings.'),
+            'empty_question' => xlt('Type a question first.'),
+            'too_long'      => xlt('The question exceeds the maximum allowed length.'),
+            'network_error' => xlt('Connection error. Please try again.'),
+            'chat_error'    => xlt('The question could not be answered. Please try again.'),
+            'clear'         => xlt('Clear conversation'),
+            'cleared'       => xlt('Conversation cleared.'),
         ];
     }
 

@@ -4,7 +4,7 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 
 **Minimum OpenEMR version:** 8.2.0  
 **PHP minimum:** 8.2.0  
-**Current milestone:** M5 complete — M6 next (awaiting confirmation)
+**Current milestone:** M6 complete — M7 next
 
 ---
 
@@ -21,9 +21,9 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 
 ### Layer 2 — Patient Chat Panel *(optional, enable in settings)*
 - A side panel scoped to the current patient.
-- Answers questions using only the patient's chart data.
-- Cites which section each fact comes from.
-- Conversation history is kept in-session only; not persisted by default.
+- Answers questions using only the patient's de-identified chart data.
+- Cites which chart section each fact comes from, shown as chips under the answer. A section that is not present in the chart is never reported as a source.
+- Conversation history lives in the browser tab only: nothing is stored in the database, in the PHP session, or in any browser storage. The history is sent with each question and re-bounded server-side; a client-injected "system" turn is rejected so the model instructions cannot be rewritten.
 
 ---
 
@@ -151,6 +151,7 @@ oe-module-ai-assistant/
 - Audit table records metadata only: user, patient ID, encounter ID, action, provider, model, status, token counts, duration, timestamp. `action`/`status` are `VARCHAR(32)`, not an ENUM, so new values do not need an ALTER.
 - If audit inserts fail, the logger stops sending payload content and increments an in-request counter; the settings page shows a warning with the failure count.
 - Transcription uses an exclusive non-blocking `flock()` on a temp file hashed by the whisper URL. The lock file is never unlinked (unlinking races with other workers on the path); workers waiting on it must share the same temp directory.
+- The patient chat panel (Layer 2) answers questions only from the de-identified chart context and tags every sourced claim with a `[[cite:<section>]]` marker that the server validates against the sections actually present in the chart. The panel never issues diagnoses or treatment changes, and it disappears from the page when `chat_enabled` is off.
 - `debug_log_content` defaults to `0`. Keep it off outside development: turning it on writes prompts and responses to logs.
 
 ---
@@ -174,7 +175,7 @@ oe-module-ai-assistant/
 | M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok), encrypted keys | Done |
 | M4 | PatientContextBuilder, de-identification | Done |
 | M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Done |
-| M6 | Layer 2: patient chat panel | Next (awaiting confirmation) |
+| M6 | Layer 2: patient chat panel | Done |
 | M7 | Hardening: audit, rate limits, error handling, final docs | Pending |
 
 ---

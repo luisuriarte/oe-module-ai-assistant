@@ -112,13 +112,27 @@ class SoapFormScriptListener
             '[AiAssistant:SoapListener] consent gate = ' . ($granted ? 'GRANTED' : 'BLOCKED(' . $reason . ')')
         );
 
-        $scriptUrl = $this->buildAssetUrl('public/assets/js/ai-dictation.js');
+        $wanted = [$this->buildAssetUrl('public/assets/js/ai-dictation.js')];
+
+        // Layer 2 is optional: the chat panel widget is only loaded when an admin
+        // enabled it in settings. The gate itself is still enforced server-side in
+        // ChatController, so a cached page or a hand-injected script cannot chat.
+        if ((string) $this->settings->get('chat_enabled', '0') === '1') {
+            $wanted[] = $this->buildAssetUrl('public/assets/js/ai-chat.js');
+            $this->logger->debug('[AiAssistant:SoapListener] chat panel enabled');
+        }
 
         $scripts = $event->getScripts();
-        if (!in_array($scriptUrl, $scripts, true)) {
-            $scripts[] = $scriptUrl;
+        $changed = false;
+        foreach ($wanted as $assetUrl) {
+            if (!in_array($assetUrl, $scripts, true)) {
+                $scripts[] = $assetUrl;
+                $changed = true;
+                $this->logger->debug('[AiAssistant:SoapListener] Script injected | url=' . $assetUrl);
+            }
+        }
+        if ($changed) {
             $event->setScripts($scripts);
-            $this->logger->debug('[AiAssistant:SoapListener] Script injected | url=' . $scriptUrl);
         }
 
         // The toolbar fetches the gate state from ?action=module_status on init.

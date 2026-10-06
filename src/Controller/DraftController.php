@@ -34,17 +34,14 @@ use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder;
 use OpenEMR\Modules\AiAssistant\Draft\SoapDraftGenerator;
-use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderAuthenticationException;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderException;
-use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderInvalidResponseException;
-use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderRateLimitException;
-use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderSafetyBlockException;
-use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderTimeoutException;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class DraftController
 {
+    use ProviderErrorResponder;
+
     private SettingsManager $settings;
     private SystemLogger $logger;
     private ConsentGate $consent;
@@ -300,7 +297,10 @@ class DraftController
                 tokensOut: 0
             );
 
-            $friendlyMessage = $this->mapExceptionToMessage($e);
+            $friendlyMessage = $this->mapExceptionToMessage(
+                $e,
+                xlt('An unexpected error occurred while generating the SOAP draft.')
+            );
 
             http_response_code(400);
             echo json_encode([
@@ -328,68 +328,5 @@ class DraftController
             }
         }
         return null;
-    }
-
-    /**
-     * Returns the fixed error code for an exception, for audit and API responses.
-     */
-    private function fixedErrorCode(\Throwable $e): string
-    {
-        if ($e instanceof ProviderException) {
-            return $e->fixedCode();
-        }
-
-        return match (true) {
-            $e instanceof \InvalidArgumentException => 'REQUEST_INVALID',
-            $e instanceof \RuntimeException         => 'REQUEST_FAILED',
-            default                                 => 'UNEXPECTED',
-        };
-    }
-
-    /**
-     * Maps exceptions to a localized, clinician-facing message.
-     *
-     * The provider's own words are withheld unless debug_log_content is enabled: they are
-     * free-form, untranslated, and have been known to echo prompt content. The fixed error
-     * code is always returned separately so the failure is still identifiable.
-     */
-    private function mapExceptionToMessage(\Throwable $e): string
-    {
-        $message = match (true) {
-            $e instanceof ProviderAuthenticationException =>
-                xlt('AI provider authentication failed. Please verify your API key in AI Assistant Settings.'),
-            $e instanceof ProviderRateLimitException =>
-                xlt('AI provider rate limit reached. Please wait a few seconds before retrying.'),
-            $e instanceof ProviderSafetyBlockException =>
-                xlt('The consultation content was flagged by the AI provider safety filter.'),
-            $e instanceof ProviderTimeoutException =>
-                xlt('The AI provider request timed out. Please try again or check your network connectivity.'),
-            $e instanceof ProviderInvalidResponseException =>
-                xlt('The AI provider rejected the request.'),
-            $e instanceof ProviderException =>
-                xlt('AI provider communication failed. Please retry.'),
-            default =>
-                $e instanceof \InvalidArgumentException
-                    ? $e->getMessage()
-                    : xlt('An unexpected error occurred while generating the SOAP draft.'),
-        };
-
-        if ($this->debugEnabled() && trim($e->getMessage()) !== '') {
-            $message .= ' [' . $e->getMessage() . ']';
-        }
-
-        return $message;
-    }
-
-    /**
-     * True only when an admin explicitly enabled verbose debug logging.
-     */
-    private function debugEnabled(): bool
-    {
-        try {
-            return (string) $this->settings->get('debug_log_content', '0') === '1';
-        } catch (\Throwable) {
-            return false;
-        }
     }
 }

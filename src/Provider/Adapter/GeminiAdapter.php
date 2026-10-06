@@ -162,7 +162,8 @@ public function getProviderName(): string
             'x-goog-api-key' => $this->apiKey,
         ];
 
-        $resp = $this->executeRequest($url, 'POST', $headers, json_encode($payload));
+        $requestTimeout = (int) ($options['timeout'] ?? $this->timeoutSec);
+        $resp = $this->executeRequest($url, 'POST', $headers, json_encode($payload), $requestTimeout);
 
         $data = json_decode($resp['body'], true);
         if (!is_array($data)) {

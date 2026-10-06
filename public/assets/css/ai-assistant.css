@@ -192,9 +192,9 @@
 
 .oe-ai-transcript-textarea {
     width: 100%;
-    min-height: 80px;
-    max-height: 200px;
-    padding: 8px 10px;
+    min-height: 160px;
+    max-height: 360px;
+    padding: 10px 12px;
     font-size: 0.9rem;
     font-family: inherit;
     border: 1px solid #d1d5db;
@@ -296,4 +296,214 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+}
+
+
+/* ==========================================================================
+   Layer 2 - Patient chat panel (M6)
+   ========================================================================== */
+
+.oe-ai-chat-toggle {
+    position: fixed;
+    right: 14px;
+    top: 14px;
+    z-index: 12000;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.oe-ai-chat-toggle:hover {
+    background: #1d4ed8;
+}
+
+.oe-ai-chat-toggle[hidden] {
+    display: none;
+}
+
+.oe-ai-chat-panel {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12001;
+    display: flex;
+    flex-direction: column;
+    width: 96%;
+    max-width: 1100px;
+    height: 60vh;
+    max-height: 560px;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+    font-size: 0.9rem;
+}
+
+.oe-ai-chat-panel[hidden] {
+    display: none;
+}
+
+.oe-ai-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 14px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.oe-ai-chat-title {
+    font-weight: 700;
+    color: #111827;
+}
+
+.oe-ai-chat-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.oe-ai-chat-link {
+    border: 0;
+    background: none;
+    color: #2563eb;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0;
+}
+
+.oe-ai-chat-link:hover {
+    text-decoration: underline;
+}
+
+.oe-ai-chat-messages {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #fff;
+}
+
+.oe-ai-chat-bubble {
+    max-width: 92%;
+    padding: 9px 12px;
+    border-radius: 10px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.oe-ai-chat-bubble-user {
+    align-self: flex-end;
+    background: #2563eb;
+    color: #fff;
+}
+
+.oe-ai-chat-bubble-assistant {
+    align-self: flex-start;
+    background: #f3f4f6;
+    color: #1f2937;
+    border: 1px solid #e5e7eb;
+}
+
+.oe-ai-chat-bubble-pending {
+    opacity: 0.7;
+    font-style: italic;
+}
+
+.oe-ai-chat-citations {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #d1d5db;
+    font-size: 0.75rem;
+}
+
+.oe-ai-chat-citations-label {
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.oe-ai-chat-citation {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.oe-ai-chat-notice {
+    padding: 9px 14px;
+    background: #fef3c7;
+    border-top: 1px solid #fde68a;
+    color: #92400e;
+    font-size: 0.8rem;
+}
+
+.oe-ai-chat-notice[hidden] {
+    display: none;
+}
+
+.oe-ai-chat-composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px 14px;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+}
+
+.oe-ai-chat-input {
+    flex: 1 1 auto;
+    resize: none;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.oe-ai-chat-input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.oe-ai-chat-input:disabled {
+    background: #f3f4f6;
+    color: #9ca3af;
+}
+
+.oe-ai-chat-send {
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.oe-ai-chat-send:hover:not(:disabled) {
+    background: #1d4ed8;
+}
+
+.oe-ai-chat-send:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
 }

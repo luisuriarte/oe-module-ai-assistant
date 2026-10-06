@@ -4,7 +4,7 @@ Módulo personalizado de OpenEMR que ayuda a los médicos a redactar notas SOAP 
 
 **Versión mínima de OpenEMR:** 8.2.0  
 **PHP mínimo:** 8.2.0  
-**Hito actual:** M5 completo — M6 a continuación (pendiente de confirmación)
+**Hito actual:** M6 completo — M7 a continuación
 
 ---
 
@@ -21,9 +21,9 @@ Módulo personalizado de OpenEMR que ayuda a los médicos a redactar notas SOAP 
 
 ### Capa 2 — Panel de Chat del Paciente *(opcional, habilitar en configuración)*
 - Panel lateral con alcance limitado al paciente actual.
-- Responde preguntas usando únicamente los datos de la historia clínica del paciente.
-- Indica de qué sección proviene cada dato.
-- El historial de conversación se mantiene sólo en la sesión actual; no se persiste por defecto.
+- Responde preguntas usando únicamente los datos desidentificados de la historia clínica del paciente.
+- Indica de qué sección de la ficha proviene cada dato, mostrados como etiquetas bajo la respuesta. Una sección ausente de la ficha nunca se reporta como fuente.
+- El historial de conversación vive solo en la pestaña del navegador: no se guarda en la base de datos, en la sesión PHP ni en ningún almacenamiento del navegador. El historial viaja con cada pregunta y el servidor lo vuelve a acotar; además se rechaza cualquier turno "system" inyectado por el cliente para que no se puedan reescribir las instrucciones del modelo.
 
 ---
 
@@ -151,6 +151,7 @@ oe-module-ai-assistant/
 - La tabla de auditoría registra únicamente metadatos: usuario, ID de paciente, ID de consulta, acción, proveedor, modelo, estado, conteo de tokens, duración y marca de tiempo. `action`/`status` son `VARCHAR(32)`, no un ENUM, por lo que nuevos valores no requieren un ALTER.
 - Si las inserciones de auditoría fallan, el registrador deja de enviar contenido y aumenta un contador en la solicitud; la página de configuración muestra una advertencia con el conteo de fallos.
 - La transcripción usa un `flock()` exclusivo no bloqueante sobre un archivo temporal con hash de la URL de whisper. El archivo de bloqueo nunca se elimina (eliminarlo crea una carrera con otros workers); los workers que esperan en él deben compartir el mismo directorio temporal.
+- El panel de chat del paciente (Capa 2) responde solo desde el contexto desidentificado de la ficha y etiqueta cada dato con un marcador `[[cite:<sección>]]` que el servidor valida contra las secciones realmente presentes en la ficha. El panel nunca emite diagnósticos ni cambios de tratamiento, y desaparece de la página cuando `chat_enabled` está desactivado.
 - `debug_log_content` viene en `0` por defecto. Mantenelo apagado fuera del desarrollo: si lo activás, se escriben los prompts y respuestas a los registros.
 
 ---
@@ -174,7 +175,7 @@ oe-module-ai-assistant/
 | M3 | Capa de proveedores (OpenAI / Anthropic / Gemini / Grok), claves cifradas | Completado |
 | M4 | PatientContextBuilder, desidentificación | Completado |
 | M5 | UI Capa 1: dictado, editor de transcripción, relleno de campos SOAP | Completado |
-| M6 | Capa 2: panel de chat del paciente | Siguiente (pendiente de confirmación) |
+| M6 | Capa 2: panel de chat del paciente | Completado |
 | M7 | Endurecimiento: auditoría, límites de tasa, manejo de errores, docs finales | Pendiente |
 
 ---

@@ -48,7 +48,7 @@ class TestableOpenAiAdapter extends OpenAiAdapter
 
     protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
     {
-        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody];
+        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody, 'timeout' => $customTimeout];
         if ($this->mockResponse !== null) {
             if (isset($this->mockResponse['exception'])) {
                 throw $this->mockResponse['exception'];
@@ -66,7 +66,7 @@ class TestableAnthropicAdapter extends AnthropicAdapter
 
     protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
     {
-        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody];
+        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody, 'timeout' => $customTimeout];
         if ($this->mockResponse !== null) {
             if (isset($this->mockResponse['exception'])) {
                 throw $this->mockResponse['exception'];
@@ -84,7 +84,7 @@ class TestableGeminiAdapter extends GeminiAdapter
 
     protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
     {
-        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody];
+        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody, 'timeout' => $customTimeout];
         if ($this->mockResponse !== null) {
             if (isset($this->mockResponse['exception'])) {
                 throw $this->mockResponse['exception'];
@@ -102,7 +102,7 @@ class TestableGrokAdapter extends GrokAdapter
 
     protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
     {
-        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody];
+        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody, 'timeout' => $customTimeout];
         if ($this->mockResponse !== null) {
             if (isset($this->mockResponse['exception'])) {
                 throw $this->mockResponse['exception'];
@@ -129,6 +129,8 @@ class ProviderSimulationRunner
         $this->testGrokSimulation();
         $this->testGeminiSafetyBlocks();
         $this->testUniformExceptions();
+        $this->testTimeoutForwarding();
+        $this->testHttpRetryPolicy();
 
         echo "\n===================================================\n";
         echo "Results: {$this->passed} passed, {$this->failed} failed.\n";
@@ -453,6 +455,56 @@ class ProviderSimulationRunner
             $this->assert('Uniform Exception: Auth error caught as subtype', true);
             $this->assert('Uniform Exception: Auth error is instance of ProviderException', $e instanceof ProviderException);
         }
+    }
+
+    /**
+     * The generator and the chat service pass a per-request 'timeout' option. Each
+     * adapter must honour it: otherwise the request is cut at the constructor default
+     * (30 s) no matter what the caller asked for.
+     */
+    private function testTimeoutForwarding(): void
+    {
+        $adapter = new TestableOpenAiAdapter('sk-key', 'gpt-4o', 0.2, 1024);
+        $adapter->mockResponse = ['statusCode' => 200, 'body' => '{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}', 'headers' => []];
+        $adapter->generate([['role' => 'user', 'content' => 'q']], ['timeout' => 61]);
+        $this->assert('OpenAI: per-request timeout option is honoured', ($adapter->lastExecuted['timeout'] ?? 0) === 61);
+
+        $adapter = new TestableOpenAiAdapter('sk-key', 'gpt-4o', 0.2, 1024, 'https://api.openai.com/v1', 90);
+        $adapter->mockResponse = ['statusCode' => 200, 'body' => '{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}', 'headers' => []];
+        $adapter->generate([['role' => 'user', 'content' => 'q']]);
+        $this->assert('OpenAI: constructor timeout used when no option given', ($adapter->lastExecuted['timeout'] ?? 0) === 90);
+
+        $anthropic = new TestableAnthropicAdapter('sk-key', 'claude-x', 0.2, 1024);
+        $anthropic->mockResponse = ['statusCode' => 200, 'body' => '{"content":[{"type":"text","text":"x"}],"usage":{"input_tokens":1,"output_tokens":1}}', 'headers' => []];
+        $anthropic->generate([['role' => 'user', 'content' => 'q']], ['timeout' => 62]);
+        $this->assert('Anthropic: per-request timeout option is honoured', ($anthropic->lastExecuted['timeout'] ?? 0) === 62);
+
+        $gemini = new TestableGeminiAdapter('key', 'gemini-3.8-flash');
+        $gemini->mockResponse = ['statusCode' => 200, 'body' => '{"candidates":[{"content":{"parts":[{"text":"x"}]},"finishReason":"STOP"}]}', 'headers' => []];
+        $gemini->generate([['role' => 'user', 'content' => 'q']], ['timeout' => 63]);
+        $this->assert('Gemini: per-request timeout option is honoured', ($gemini->lastExecuted['timeout'] ?? 0) === 63);
+
+        $grok = new TestableGrokAdapter('xai-key', 'grok-4.7', 0.2, 1024);
+        $grok->mockResponse = ['statusCode' => 200, 'body' => '{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}', 'headers' => []];
+        $grok->generate([['role' => 'user', 'content' => 'q']], ['timeout' => 64]);
+        $this->assert('Grok: per-request timeout option is honoured (inherits OpenAI)', ($grok->lastExecuted['timeout'] ?? 0) === 64);
+    }
+
+    /**
+     * The 5xx retry policy lives outside the request loop so it can be asserted without a
+     * live connection: only transient server errors get exactly one retry.
+     */
+    private function testHttpRetryPolicy(): void
+    {
+        $ok = static fn(int $status, int $attempt): bool => AbstractProviderAdapter::shouldRetryHttpError($status, $attempt);
+
+        $this->assert('Retry: 503 on first attempt is retried', $ok(503, 1) === true);
+        $this->assert('Retry: 500 on first attempt is retried', $ok(500, 1) === true);
+        $this->assert('Retry: 503 on second attempt is not retried again', $ok(503, 2) === false);
+        $this->assert('Retry: 404 is not retried', $ok(404, 1) === false);
+        $this->assert('Retry: 429 is not retried', $ok(429, 1) === false);
+        $this->assert('Retry: 401 is not retried', $ok(401, 1) === false);
+        $this->assert('Retry: 200 is not retried', $ok(200, 1) === false);
     }
 }
 

@@ -98,7 +98,8 @@ class AnthropicAdapter extends AbstractProviderAdapter
             'anthropic-version' => self::ANTHROPIC_VERSION,
         ];
 
-        $resp = $this->executeRequest($url, 'POST', $headers, json_encode($payload));
+        $requestTimeout = (int) ($options['timeout'] ?? $this->timeoutSec);
+        $resp = $this->executeRequest($url, 'POST', $headers, json_encode($payload), $requestTimeout);
 
         $data = json_decode($resp['body'], true);
         if (!is_array($data)) {

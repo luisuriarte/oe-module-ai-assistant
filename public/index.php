@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../../../globals.php';
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
+use OpenEMR\Modules\AiAssistant\Controller\ChatController;
 use OpenEMR\Modules\AiAssistant\Controller\DraftController;
 use OpenEMR\Modules\AiAssistant\Controller\SettingsController;
 use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
@@ -59,6 +60,7 @@ $routes = [
     'transcribe_submit' => [TranscribeController::class, 'submit', 'ai_assistant', 'use'],
     'transcribe_status' => [TranscribeController::class, 'status', 'ai_assistant', 'use'],
     'soap_draft'        => [DraftController::class, 'createDraft', 'ai_assistant', 'use'],
+    'chat'              => [ChatController::class, 'send', 'ai_assistant', 'use'],
 ];
 
 if (!isset($routes[$action])) {
