@@ -108,6 +108,8 @@ class PatientContextBuilderTest
         $this->testCrossPatientIsolation();
         $this->testEncounterSensitivityAcl();
         $this->testFreeTextRedaction();
+        $this->testClinicalNumbersNotRedacted();
+        $this->testIdentifierRedactionRequiresEvidence();
         $this->testTokenBudgetAndTruncationPriority();
         $this->testRelativeDatesFormatting();
         $this->testLabsSettingGating();
@@ -517,6 +519,81 @@ class PatientContextBuilderTest
 
         $this->assert(!str_contains($context, '30.123.456'), 'National ID sequence in free text is redacted');
         $this->assert(str_contains($context, '[REDACTED-ID]'), '[REDACTED-ID] placeholder inserted');
+    }
+
+    public function testClinicalNumbersNotRedacted(): void
+    {
+        $builder = (new \ReflectionClass(\OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder::class))
+            ->newInstanceWithoutConstructor();
+
+        // Lab counts and doses must survive redaction. These are the shapes that a naive
+        // "6+ digit run is a phone" heuristic would eat.
+        $keep = [
+            'Hb 4.500.000 /mm3',
+            'Eritrocitos 4.500.000 /mm3',
+            'Hematocrito 42 %',
+            'Dosis 2.400.000 UI',
+            'Plaquetas 250000',
+            'Troponina 123456',
+            'Fecha 20261005',
+            'Glucosa 100 mg/dL',
+            'PA 120/80 mmHg',
+            '120/80',
+            'Creatinina 1.2 mg/dL',
+        ];
+        foreach ($keep as $t) {
+            $this->assert(
+                $builder->redactFreeText($t) === $t,
+                'Clinical number kept: ' . $t,
+                $builder->redactFreeText($t)
+            );
+        }
+    }
+
+    public function testIdentifierRedactionRequiresEvidence(): void
+    {
+        $builder = (new \ReflectionClass(\OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder::class))
+            ->newInstanceWithoutConstructor();
+
+        // Evidence = a keyword such as DNI/documento/CUIL/CUIT/pasaporte, a dotted 2.3.3 DNI
+        // shape, a hyphenated CUIL with a valid check digit, a phone-like structure, or a
+        // tel/cel/whatsapp keyword.
+        $redact = [
+            ['DNI 34567890', '[REDACTED-ID]'],
+            ['DNI 34.567.890', '[REDACTED-ID]'],
+            ['documento 20.345.678', '[REDACTED-ID]'],
+            ['27345678900', '[REDACTED-ID]'], // valid CUIL check digit, no keyword
+            ['30.711.111', '[REDACTED-ID]'],
+            ['11-4567-8901', '[REDACTED-PHONE]'],
+            ['Tel: 11-4567-8901', '[REDACTED-PHONE]'],
+            ['WhatsApp 1145678901', '[REDACTED-PHONE]'],
+            ['maria@test.org', '[REDACTED-EMAIL]'],
+        ];
+        foreach ($redact as [$t, $expect]) {
+            $out = $builder->redactFreeText($t);
+            $this->assert(
+                str_contains($out, $expect),
+                'Evidence-based redaction: ' . $t,
+                $out
+            );
+        }
+
+        // No evidence, no redaction: an invalid check digit or an unknown prefix means the
+        // number is not an identifier, and lab counts carry no keyword.
+        $keep = [
+            '99888777666',   // invalid CUIL prefix
+            '27345678901',   // wrong check digit
+            '20261005',      // bare date-like run
+            'Plaquetas 250000',
+            'Troponina 123456',
+        ];
+        foreach ($keep as $t) {
+            $this->assert(
+                $builder->redactFreeText($t) === $t,
+                'No-evidence number kept: ' . $t,
+                $builder->redactFreeText($t)
+            );
+        }
     }
 
     public function testTokenBudgetAndTruncationPriority(): void

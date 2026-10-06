@@ -261,12 +261,12 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
         // 1. Connection / Timeout errors
         if ($curlError !== '') {
             if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
-                throw new ProviderTimeoutException(
+                throw (new ProviderTimeoutException(
                     "Request to {$providerName} timed out after {$timeout} seconds.",
                     $curlErrno,
                     null,
                     $providerName
-                );
+                ))->setErrorDetail("timeout_sec={$timeout}");
             }
             throw new ProviderException(
                 "Network error connecting to {$providerName}: {$curlError}",
@@ -278,12 +278,12 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
 
         // 2. Authentication errors (401, 403)
         if ($statusCode === 401 || $statusCode === 403) {
-            throw new ProviderAuthenticationException(
+            throw (new ProviderAuthenticationException(
                 "Authentication failed with {$providerName} (HTTP {$statusCode}). Check your API key.",
                 $statusCode,
                 null,
                 $providerName
-            );
+            ))->setErrorDetail("http_status={$statusCode}");
         }
 
         // 3. Rate limiting (429)
@@ -292,45 +292,35 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
             if (!empty($responseHeaders['retry-after'])) {
                 $retryAfter = (int) $responseHeaders['retry-after'];
             }
-            throw new ProviderRateLimitException(
+            throw (new ProviderRateLimitException(
                 "{$providerName} rate limit or quota exceeded (HTTP 429).",
                 $statusCode,
                 null,
                 $providerName,
                 $retryAfter
-            );
+            ))->setErrorDetail("http_status=429");
         }
 
         // 4. Server errors (5xx) or unexpected status
         if ($statusCode >= 500) {
-            throw new ProviderInvalidResponseException(
-                sprintf(
-                    '%s service unavailable or internal error (HTTP %d): %s',
-                    $providerName,
-                    $statusCode,
-                    self::extractProviderError((string) $body)
-                ),
+            throw (new ProviderInvalidResponseException(
+                sprintf('%s service unavailable or internal error (HTTP %d)', $providerName, $statusCode),
                 $statusCode,
                 null,
                 $providerName
-            );
+            ))->setErrorDetail(self::providerErrorDetail((string) $body, $statusCode));
         }
 
         if ($statusCode < 200 || $statusCode >= 300) {
-            // A 4xx from the provider carries the actual reason (model not found, bad
-            // parameter, unsupported endpoint) in the body. Reporting it as a generic
-            // "invalid response" hid the real cause behind "invalid format" in the UI.
-            throw new ProviderInvalidResponseException(
-                sprintf(
-                    '%s rejected the request (HTTP %d): %s',
-                    $providerName,
-                    $statusCode,
-                    self::extractProviderError($body)
-                ),
+            // A 4xx carries the real reason (model not found, bad parameter, unsupported
+            // endpoint) as an error type/code. Only that typed fragment is kept: the
+            // provider's message body is never retained because it can echo the prompt.
+            throw (new ProviderInvalidResponseException(
+                sprintf('%s rejected the request (HTTP %d)', $providerName, $statusCode),
                 $statusCode,
                 null,
                 $providerName
-            );
+            ))->setErrorDetail(self::providerErrorDetail($body, $statusCode));
         }
 
         return [
@@ -341,36 +331,30 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
     }
 
     /**
-     * Pulls the human-readable reason out of an OpenAI-compatible error body.
+     * Extracts only the HTTP status and the provider's error type/code.
      *
-     * Shape: {"error": {"message": "...", "type": "...", "code": "..."}}
-     * Falls back to a truncated raw body so nothing is silently discarded.
+     * Shape: {"error": {"type": "...", "code": "..."}} — the `message` field is ignored on
+     * purpose. Anything that is not that shape collapses to a fixed token, so no fragment
+     * of an error body can ever reach a log line or an API response.
      */
-    private static function extractProviderError(string $body): string
+    private static function providerErrorDetail(string $body, int $statusCode): string
     {
-        $body = trim($body);
-        if ($body === '') {
-            return 'no response body';
+        $detail = 'http_status=' . $statusCode;
+
+        $decoded = json_decode((string) $body, true);
+        if (is_array($decoded) && isset($decoded['error']) && is_array($decoded['error'])) {
+            $type = trim((string) ($decoded['error']['type'] ?? ''));
+            $code = trim((string) ($decoded['error']['code'] ?? ''));
+            if ($type !== '') {
+                $detail .= ' type=' . preg_replace('/[^\w.\-]/', '', $type);
+            }
+            if ($code !== '') {
+                $detail .= ' code=' . preg_replace('/[^\w.\-]/', '', $code);
+            }
+
+            return $detail;
         }
 
-        $decoded = json_decode($body, true);
-        if (is_array($decoded) && isset($decoded['error'])) {
-            $err = $decoded['error'];
-            if (is_array($err)) {
-                $msg = trim((string) ($err['message'] ?? ''));
-                $code = trim((string) ($err['code'] ?? ''));
-                $type = trim((string) ($err['type'] ?? ''));
-                $parts = array_filter([$type, $code, $msg], fn($p) => $p !== '');
-                if ($parts !== []) {
-                    return implode(' | ', $parts);
-                }
-            }
-            if (is_string($err) && $err !== '') {
-                return $err;
-            }
-        }
-
-        // Not JSON, or an unexpected shape: show a bounded slice for the log.
-        return mb_strimwidth(preg_replace('/\s+/', ' ', $body) ?? $body, 0, 300, '...');
+        return $detail . ' body=' . (is_array($decoded) ? 'json_object' : 'non_json');
     }
 }

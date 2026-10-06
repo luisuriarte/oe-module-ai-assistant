@@ -71,6 +71,9 @@ class ModuleManagerListener extends AbstractModuleActionListener
     {
         try {
             $this->runSqlFile(__DIR__ . '/sql/install.sql');
+            // Creates the table when fresh; on a re-install it is a harmless no-op
+            // if columns already have the target definition.
+            $this->runUpgradeFile();
             $this->registerAclSections();
         } catch (\Throwable $e) {
             $this->logger->error(
@@ -82,11 +85,21 @@ class ModuleManagerListener extends AbstractModuleActionListener
     }
 
     /**
-     * Called when the module is enabled. No-op for now; settings are managed
-     * through the settings page.
+     * Called when the module is enabled. Re-applies the idempotent schema upgrade so
+     * an installation that already had the ENUM columns is migrated to VARCHAR(32)
+     * the next time an admin enables the module.
      */
     private function enable($modId, string $currentActionStatus): string
     {
+        try {
+            $this->runUpgradeFile();
+        } catch (\Throwable $e) {
+            // Enabling must not fail because of a schema upgrade problem: the module
+            // still runs, and AuditLogger retries the upgrade lazily on first write.
+            $this->logger->error(
+                '[AiAssistant] schema upgrade on enable failed: ' . $e->getMessage()
+            );
+        }
         return $currentActionStatus;
     }
 
@@ -147,15 +160,35 @@ class ModuleManagerListener extends AbstractModuleActionListener
         return $currentActionStatus;
     }
 
-    /** Called after SQL upgrade file is run — no extra work. */
+    /** Called after SQL upgrade file is run — applies our own idempotent upgrade. */
     private function upgrade_sql($modId, string $currentActionStatus): string
     {
+        try {
+            $this->runUpgradeFile();
+        } catch (\Throwable $e) {
+            $this->logger->error(
+                '[AiAssistant] upgrade_sql failed: ' . $e->getMessage()
+            );
+            return 'Error: ' . $e->getMessage();
+        }
         return $currentActionStatus;
     }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /** Runs sql/upgrade.sql (idempotent). */
+    private function runUpgradeFile(): void
+    {
+        $path = __DIR__ . '/sql/upgrade.sql';
+        if (!file_exists($path)) {
+            return;
+        }
+        foreach (self::splitSqlStatements($path) as $statement) {
+            sqlStatement($statement);
+        }
+    }
 
     /**
      * Registers the module's ACL section and permission objects.
@@ -192,15 +225,27 @@ class ModuleManagerListener extends AbstractModuleActionListener
             throw new \RuntimeException("SQL file not found: $path");
         }
 
-        $sql = file_get_contents($path);
-        // Split on semicolons, skip blank lines and comments
-        $statements = array_filter(
-            array_map('trim', explode(';', $sql)),
-            static fn(string $s): bool => $s !== '' && !str_starts_with($s, '--')
-        );
-
-        foreach ($statements as $statement) {
+        foreach (self::splitSqlStatements($path) as $statement) {
             sqlStatement($statement);
         }
+    }
+
+    /**
+     * Splits a SQL file into executable statements, dropping `--` comment lines first.
+     * Comment lines must be stripped before splitting: otherwise a file that opens with
+     * a comment block puts that block in the same chunk as the first statement, and a
+     * naive "skip chunks starting with --" filter would drop the statement too.
+     *
+     * @return string[]
+     */
+    private static function splitSqlStatements(string $path): array
+    {
+        $sql = (string) file_get_contents($path);
+        $sql = preg_replace('/^\s*--.*$/m', '', $sql) ?? $sql;
+
+        return array_values(array_filter(
+            array_map('trim', explode(';', $sql)),
+            static fn(string $s): bool => $s !== ''
+        ));
     }
 }

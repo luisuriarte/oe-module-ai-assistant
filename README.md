@@ -4,7 +4,7 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 
 **Minimum OpenEMR version:** 8.2.0  
 **PHP minimum:** 8.2.0  
-**Current milestone:** M1 — Module Skeleton
+**Current milestone:** M5 complete — M6 next (awaiting confirmation)
 
 ---
 
@@ -43,10 +43,13 @@ oe-module-ai-assistant/
 │   ├── Transcription/              HTTP client for whisper.cpp
 │   ├── Provider/                   AiProviderInterface + OpenAI / Anthropic / Gemini / Grok adapters
 │   ├── Context/PatientContextBuilder  Minimised, de-identified chart context
-│   ├── Service/SoapDraftService    Transcript + context → validated S/O/A/P JSON
+│   ├── Draft/SoapDraftGenerator    Transcript + context → validated S/O/A/P JSON
 │   ├── Service/ChatService         Patient-scoped conversation
+│   ├── Security/ConsentGate        Server-side consent gate for all outbound calls
+│   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
+│   ├── Provider/Exception/         Fixed error codes, never leaks provider bodies
 │   ├── Controller/                 Session + CSRF + ACL-protected endpoints
-│   ├── Audit/AuditLogger           Metadata-only audit trail
+│   ├── Audit/AuditLogger           Metadata-only audit trail + schema self-heal
 │   └── EventListener/              ScriptFilterEvent → injects JS into SOAP form
 │
 ├── public/                         Web-accessible; every file enforces session + ACL
@@ -56,6 +59,7 @@ oe-module-ai-assistant/
 ├── templates/settings.php          Admin settings form (PHP template)
 └── sql/
     ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings
+    ├── upgrade.sql                 Idempotent ALTERs, run on install / enable / upgrade
     ├── uninstall.sql               DROP TABLE (clean removal)
     └── lang_custom.sql             Spanish (Latin American) translations
 ```
@@ -71,6 +75,7 @@ oe-module-ai-assistant/
 | OpenEMR | ≥ 8.2.0 |
 | PHP | ≥ 8.2.0 (8.3+ on OpenEMR 8.4.x) |
 | whisper.cpp server | Running on `http://127.0.0.1:8178` (local only) |
+| Shared temp dir | `sys_get_temp_dir()` must be the same for every PHP worker (flock + job files). With `PrivateTmp=yes` (systemd) or per-pool chroots, point `TMPDIR` at a common path. |
 | AI provider | OpenAI / Anthropic / Gemini / Grok (xAI) API key |
 
 ### Steps
@@ -84,6 +89,7 @@ oe-module-ai-assistant/
 
 3. The Module Manager will:
    - Create tables `oe_ai_assistant_audit` and `oe_ai_assistant_settings`
+   - Run `sql/upgrade.sql` (idempotent) so existing installs get the current schema
    - Register ACL section `ai_assistant` with objects `use` and `admin`
 
 4. **Translations:** run `sql/lang_custom.sql` directly against your OpenEMR database to install Spanish (Latin American) translations:
@@ -107,7 +113,7 @@ oe-module-ai-assistant/
 |---|---|---|
 | `whisper_url` | `http://127.0.0.1:8178` | whisper.cpp server base URL |
 | `whisper_timeout` | `60` | Request timeout in seconds |
-| `whisper_max_audio_sec` | `300` | Maximum audio length (5 min) |
+| `whisper_max_audio_sec` | `180` | Maximum audio length (3 min) |
 | `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` |
 | `openai_base_url` | `https://api.openai.com/v1` | Supports self-hosted / compatible servers |
 | `openai_model` | `gpt-4o` | Model name (free text) |
@@ -116,7 +122,7 @@ oe-module-ai-assistant/
 | `openai_api_key` | — | Encrypted at rest; never logged |
 | `anthropic_model` | `claude-opus-4-5` | |
 | `anthropic_api_key` | — | Encrypted at rest |
-| `gemini_model` | `gemini-2.0-flash` | |
+| `gemini_model` | `gemini-3.8-flash` | `temperature` is omitted for Gemini 3.x |
 | `gemini_api_key` | — | Encrypted at rest |
 | `grok_base_url` | `https://api.x.ai/v1` | xAI endpoint (OpenAI-compatible) |
 | `grok_model` | `grok-4.7` | Any model id served to your key |
@@ -128,6 +134,7 @@ oe-module-ai-assistant/
 | `context_include_labs` | `0` | Send recent lab results |
 | `output_language` | `es` | Draft language: `es` = Spanish, `en` = English |
 | `chat_enabled` | `0` | Enable Layer 2 chat panel |
+| `provider_allow_private_hosts` | `0` | Allow loopback/private API endpoints (self-hosted models) |
 | `audit_retention_days` | `90` | Days to keep audit log rows |
 | `debug_log_content` | `0` | **Off in production.** Logs prompts/responses |
 
@@ -141,7 +148,9 @@ oe-module-ai-assistant/
 - API keys are encrypted at rest using OpenEMR's `CryptoGen` (AES-256); never written to logs or returned to the browser.
 - The whisper.cpp server is bound to `localhost` and is never exposed to the network.
 - No direct patient identifiers (name, DOB, address, national ID, insurance number) are sent to AI providers. The context includes age and sex only.
-- Audit table records metadata only: user, patient ID, encounter ID, action, provider, model, status, token counts, duration, timestamp.
+- Audit table records metadata only: user, patient ID, encounter ID, action, provider, model, status, token counts, duration, timestamp. `action`/`status` are `VARCHAR(32)`, not an ENUM, so new values do not need an ALTER.
+- If audit inserts fail, the logger stops sending payload content and increments an in-request counter; the settings page shows a warning with the failure count.
+- Transcription uses an exclusive non-blocking `flock()` on a temp file hashed by the whisper URL. The lock file is never unlinked (unlinking races with other workers on the path); workers waiting on it must share the same temp directory.
 - `debug_log_content` defaults to `0`. Keep it off outside development: turning it on writes prompts and responses to logs.
 
 ---
@@ -159,13 +168,13 @@ oe-module-ai-assistant/
 
 | Milestone | Description | Status |
 |---|---|---|
-| M0 | Inspection report, version detection, SOAP hook analysis | ✅ Done |
-| M1 | Module skeleton, settings page, install/uninstall | ✅ Done |
-| M2 | TranscriptionClient, upload endpoint, validations | ⏳ Next |
-| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok), encrypted keys | Pending |
-| M4 | PatientContextBuilder, de-identification | Pending |
-| M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Pending |
-| M6 | Layer 2: patient chat panel | Pending |
+| M0 | Inspection report, version detection, SOAP hook analysis | Done |
+| M1 | Module skeleton, settings page, install/uninstall | Done |
+| M2 | TranscriptionClient, upload endpoint, validations | Done |
+| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok), encrypted keys | Done |
+| M4 | PatientContextBuilder, de-identification | Done |
+| M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Done |
+| M6 | Layer 2: patient chat panel | Next (awaiting confirmation) |
 | M7 | Hardening: audit, rate limits, error handling, final docs | Pending |
 
 ---

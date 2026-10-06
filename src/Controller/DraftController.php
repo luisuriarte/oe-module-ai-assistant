@@ -93,13 +93,13 @@ class DraftController
             return;
         }
 
-        $userId = (int) (
-            $session->get('authUserID')
-            ?? $session->get('authId')
-            ?? $_SESSION['authUserID']
-            ?? $_SESSION['authId']
-            ?? 1
-        );
+        $userId = SessionAccessor::currentUserId();
+        if ($userId === null) {
+            // Fail closed: no authenticated user means no audit attribution is possible.
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'error' => xlt('Not authenticated.')]);
+            return;
+        }
 
         // 4. Consent gate: refuse to transmit any PHI until an admin has acknowledged
         //    the third-party data disclosure AND the active provider has a saved key.
@@ -183,6 +183,28 @@ class DraftController
             return;
         }
 
+        // 8. Release the session lock.
+        //    Every request has now been authenticated (CSRF + ACL + consent) and every
+        //    clinical binding has been validated, and no further session read occurs
+        //    below. Closing the write lock here lets a second request for the same user
+        //    proceed instead of blocking for the whole provider round-trip, which can
+        //    otherwise exceed the PHP max_execution_time while holding the lock.
+        $sessionObj = SessionAccessor::resolve();
+        if ($sessionObj !== null) {
+            try {
+                if (method_exists($sessionObj, 'close')) {
+                    $sessionObj->close();
+                } elseif (method_exists($sessionObj, 'save')) {
+                    $sessionObj->save($sessionObj->getId() ?? '');
+                } else {
+                    session_write_close();
+                }
+            } catch (\Throwable) {
+                // A non-writable session must not abort a request that is already
+                // fully validated.
+            }
+        }
+
         $start = microtime(true);
         $providerName = $this->settings->getActiveProvider();
         $modelName = '';
@@ -250,12 +272,17 @@ class DraftController
             }
 
             $durationMs = (int) round((microtime(true) - $start) * 1000);
-            $errCode    = substr((new \ReflectionClass($e))->getShortName(), 0, 64);
+            $errCode    = $this->fixedErrorCode($e);
 
-            // Log the provider's own reason so a rejected request is diagnosable from the
-            // server log instead of only "invalid format" on screen. Provider-side text
-            // only; the prompt and transcript are never included.
-            $this->logger->error('[AiAssistant] soap_draft failed: ' . $errCode . ' - ' . $e->getMessage());
+            // Log only the fixed code and the sanitized provider detail (HTTP status and
+            // provider error type/code). The exception message and the provider body are
+            // deliberately excluded: both can echo prompt content back into the log.
+            $detail = $e instanceof ProviderException ? $e->errorDetail() : '';
+            $this->logger->error(
+                '[AiAssistant] soap_draft failed: ' . $errCode
+                . ($detail !== '' ? ' ' . $detail : '')
+                . ' duration_ms=' . $durationMs
+            );
 
             // Audit record for failure (metadata-only)
             $audit = new AuditLogger();
@@ -304,11 +331,31 @@ class DraftController
     }
 
     /**
-     * Maps provider exception subtypes to helpful, clinician-friendly localized messages.
+     * Returns the fixed error code for an exception, for audit and API responses.
+     */
+    private function fixedErrorCode(\Throwable $e): string
+    {
+        if ($e instanceof ProviderException) {
+            return $e->fixedCode();
+        }
+
+        return match (true) {
+            $e instanceof \InvalidArgumentException => 'REQUEST_INVALID',
+            $e instanceof \RuntimeException         => 'REQUEST_FAILED',
+            default                                 => 'UNEXPECTED',
+        };
+    }
+
+    /**
+     * Maps exceptions to a localized, clinician-facing message.
+     *
+     * The provider's own words are withheld unless debug_log_content is enabled: they are
+     * free-form, untranslated, and have been known to echo prompt content. The fixed error
+     * code is always returned separately so the failure is still identifiable.
      */
     private function mapExceptionToMessage(\Throwable $e): string
     {
-        return match (true) {
+        $message = match (true) {
             $e instanceof ProviderAuthenticationException =>
                 xlt('AI provider authentication failed. Please verify your API key in AI Assistant Settings.'),
             $e instanceof ProviderRateLimitException =>
@@ -318,14 +365,31 @@ class DraftController
             $e instanceof ProviderTimeoutException =>
                 xlt('The AI provider request timed out. Please try again or check your network connectivity.'),
             $e instanceof ProviderInvalidResponseException =>
-                // The provider's own reason (model not found, bad request, 5xx body) is
-                // more actionable than a blanket "invalid format", so surface it. It is
-                // provider-side text and contains no patient data.
-                xlt('The AI provider rejected the request.') . ' ' . $e->getMessage(),
+                xlt('The AI provider rejected the request.'),
             $e instanceof ProviderException =>
-                xlt('AI Provider error:') . ' ' . $e->getMessage(),
+                xlt('AI provider communication failed. Please retry.'),
             default =>
-                $e->getMessage() ?: xlt('An unexpected error occurred while generating the SOAP draft.'),
+                $e instanceof \InvalidArgumentException
+                    ? $e->getMessage()
+                    : xlt('An unexpected error occurred while generating the SOAP draft.'),
         };
+
+        if ($this->debugEnabled() && trim($e->getMessage()) !== '') {
+            $message .= ' [' . $e->getMessage() . ']';
+        }
+
+        return $message;
+    }
+
+    /**
+     * True only when an admin explicitly enabled verbose debug logging.
+     */
+    private function debugEnabled(): bool
+    {
+        try {
+            return (string) $this->settings->get('debug_log_content', '0') === '1';
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

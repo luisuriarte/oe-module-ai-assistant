@@ -84,8 +84,32 @@
         }
         const publicEndpoint = webRoot + '/interface/modules/custom_modules/oe-module-ai-assistant/public/index.php';
 
-        // Maximum audio duration in seconds (default 180s = 3 minutes)
-        const maxAudioDurationSec = 180;
+        // 2b. Server-supplied config and translations.
+        // This file is static (no PHP) and ScriptFilterEvent cannot inject an inline
+        // config object: setScripts() runs every URL through
+        // ModulesApplication::filterSafeLocalModuleFiles(), which rejects anything that
+        // is not a local module file. So both the recording ceiling and the translated
+        // strings arrive on ?action=module_status, which the toolbar already calls on
+        // init. I18N stays empty until that resolves; t() falls back to the Spanish
+        // literal so nothing is ever rendered blank, and the gate fails closed.
+        let I18N = {};
+        let maxAudioDurationSec = 180;
+
+        function t(key, fallback) {
+            return (I18N[key] !== undefined && I18N[key] !== '') ? I18N[key] : fallback;
+        }
+
+        /** Applies server translations to every static node carrying data-i18n. */
+        function applyI18n(root) {
+            const scope = root || document;
+            const nodes = scope.querySelectorAll('[data-i18n]');
+            for (let i = 0; i < nodes.length; i++) {
+                const v = I18N[nodes[i].getAttribute('data-i18n')];
+                if (v) {
+                    nodes[i].textContent = v;
+                }
+            }
+        }
 
         // 3. UI State
         let mediaRecorder = null;
@@ -110,24 +134,24 @@
             <div class="oe-ai-toolbar">
                 <div class="oe-ai-left-group">
                     <span class="oe-ai-title">
-                        <i class="fa fa-microphone"></i> Dictado Clínico IA
+                        <i class="fa fa-microphone"></i> <span data-i18n="title">Dictado Clínico IA</span>
                     </span>
                     <span class="oe-ai-badge">Whisper + LLM</span>
                     <button type="button" class="oe-ai-btn oe-ai-btn-record" id="oe-ai-btn-record">
-                        <i class="fa fa-circle"></i> Grabar
+                        <i class="fa fa-circle"></i> <span data-i18n="record">Grabar</span>
                     </button>
                     <button type="button" class="oe-ai-btn oe-ai-btn-stop" id="oe-ai-btn-stop" style="display: none;">
-                        <i class="fa fa-stop"></i> Detener
+                        <i class="fa fa-stop"></i> <span data-i18n="stop">Detener</span>
                     </button>
                     <button type="button" class="oe-ai-btn oe-ai-btn-discard" id="oe-ai-btn-discard" style="display: none;">
-                        <i class="fa fa-trash"></i> Descartar
+                        <i class="fa fa-trash"></i> <span data-i18n="discard">Descartar</span>
                     </button>
                     <span class="oe-ai-timer" id="oe-ai-timer" style="display: none;">00:00 / 03:00</span>
-                    <span class="oe-ai-status-text" id="oe-ai-status">Listo para dictar</span>
+                    <span class="oe-ai-status-text" id="oe-ai-status" data-i18n="ready">Listo para dictar</span>
                 </div>
                 <div class="oe-ai-right-group">
                     <button type="button" class="oe-ai-btn oe-ai-btn-generate" id="oe-ai-btn-generate" style="display: none;">
-                        <i class="fa fa-magic"></i> Generar Nota SOAP
+                        <i class="fa fa-magic"></i> <span data-i18n="generate_soap">Generar Nota SOAP</span>
                     </button>
                 </div>
             </div>
@@ -135,10 +159,10 @@
             <!-- Transcript Drawer (editable) -->
             <div class="oe-ai-transcript-panel" id="oe-ai-transcript-panel" style="display: none;">
                 <label for="oe-ai-transcript-text">
-                    <span>Transcripción del dictado (podés editarla antes de generar el borrador):</span>
+                    <span data-i18n="transcript_label">Transcripción del dictado (podés editarla antes de generar el borrador):</span>
                     <span id="oe-ai-transcript-status" class="text-muted small"></span>
                 </label>
-                <textarea class="oe-ai-transcript-textarea" id="oe-ai-transcript-text" rows="3" placeholder="La transcripción de la consulta aparecerá acá..."></textarea>
+                <textarea class="oe-ai-transcript-textarea" id="oe-ai-transcript-text" rows="3" placeholder="La transcripción de la consulta aparecerá acá..." data-i18n="transcript_placeholder"></textarea>
             </div>
         `;
 
@@ -197,7 +221,8 @@
 
             if (elapsedSeconds >= maxAudioDurationSec) {
                 stopRecording();
-                statusText.textContent = 'Límite de audio alcanzado (3 min). Procesando...';
+                statusText.textContent = t('audio_limit_reached', 'Límite de audio alcanzado (%d min). Procesando...')
+                    .replace('%d', Math.max(1, Math.round(maxAudioDurationSec / 60)));
             }
         }
 
@@ -218,12 +243,12 @@
         // 9. Start Recording
         async function startRecording() {
             if (consentAllowed !== true) {
-                alert(consentMessage || 'El dictado por IA no está habilitado en este servidor. Contactá al administrador.');
+                alert(consentMessage || t('gate_blocked', 'El dictado por IA no está habilitado en este servidor. Contactá al administrador.'));
                 return;
             }
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                alert('La grabación de audio no está soportada en este navegador.');
+                alert(t('no_recording_support', 'La grabación de audio no está soportada en este navegador.'));
                 return;
             }
 
@@ -234,11 +259,11 @@
                 mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } catch (err) {
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    alert('Permiso de micrófono denegado. Por favor permití el acceso al micrófono en el navegador para dictar.');
+                    alert(t('mic_denied', 'Permiso de micrófono denegado. Por favor permití el acceso al micrófono en el navegador para dictar.'));
                 } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                    alert('No se encontró ningún micrófono conectado en este dispositivo.');
+                    alert(t('mic_not_found', 'No se encontró ningún micrófono conectado en este dispositivo.'));
                 } else {
-                    alert('Error al acceder al micrófono: ' + err.message);
+                    alert(t('mic_error', 'Error al acceder al micrófono: ') + err.message);
                 }
                 return;
             }
@@ -293,7 +318,7 @@
             btnDiscard.style.display = 'none';
             timerDisplay.style.display = 'none';
             btnRecord.style.display = 'inline-flex';
-            statusText.textContent = 'Audio grabado. Subiendo...';
+            statusText.textContent = t('audio_recorded', 'Audio grabado. Subiendo...');
         }
 
         // 11. Discard Recording
@@ -313,7 +338,7 @@
             btnDiscard.style.display = 'none';
             timerDisplay.style.display = 'none';
             btnRecord.style.display = 'inline-flex';
-            statusText.textContent = 'Grabación descartada.';
+            statusText.textContent = t('recording_discarded', 'Grabación descartada.');
         }
 
         /**
@@ -334,7 +359,7 @@
 
         // 12. Upload to M2 and Poll for Transcription
         function uploadAudio(audioBlob) {
-            statusText.textContent = 'Enviando audio al servidor Whisper...';
+            statusText.textContent = t('sending_audio', 'Enviando audio al servidor Whisper...');
 
             const csrf = getCsrfToken();
             const formData = new FormData();
@@ -353,7 +378,7 @@
             })
             .then(function (resObj) {
                 if (resObj.status === 429) {
-                    statusText.textContent = 'Servidor ocupado. Reintentando subida en 3 s...';
+                    statusText.textContent = t('busy_retry', 'Servidor ocupado. Reintentando subida en 3 s...');
                     setTimeout(function () { uploadAudio(audioBlob); }, 3000);
                     return;
                 }
@@ -365,7 +390,7 @@
                 //   200 {status:'completed', job_id, duration_ms}  (non-FastCGI fallback)
                 // There is no 'ok' field on this endpoint.
                 if (!data.job_id) {
-                    statusText.textContent = 'Error al subir audio: ' + (data.error || describeTranscribeError(data.error_code));
+                    statusText.textContent = t('upload_error', 'Error al subir audio: ') + (data.error || describeTranscribeError(data.error_code));
                     return;
                 }
 
@@ -377,11 +402,11 @@
                 }
 
                 activePollingJobId = data.job_id;
-                statusText.textContent = 'Transcribiendo audio (Whisper)...';
+                statusText.textContent = t('transcribing', 'Transcribiendo audio (Whisper)...');
                 pollTranscription(data.job_id);
             })
             .catch(function (err) {
-                statusText.textContent = 'Error de red al subir audio: ' + err.message;
+                statusText.textContent = t('upload_network_error', 'Error de red al subir audio: ') + err.message;
             });
         }
 
@@ -414,7 +439,7 @@
                     const data = resObj.data;
 
                     if (httpStatus === 429) {
-                        statusText.textContent = 'Servidor de transcripción ocupado. Esperando turno...';
+                        statusText.textContent = t('busy_waiting', 'Servidor de transcripción ocupado. Esperando turno...');
                         pollTranscription(jobId);
                         return;
                     }
@@ -422,18 +447,18 @@
                     // Job record pruned or TTL expired
                     if (httpStatus === 404) {
                         activePollingJobId = null;
-                        statusText.textContent = 'La transcripción expiró o no existe. Volvé a grabar.';
+                        statusText.textContent = t('job_expired', 'La transcripción expiró o no existe. Volvé a grabar.');
                         return;
                     }
 
                     if (httpStatus === 403) {
                         activePollingJobId = null;
-                        statusText.textContent = 'Error de autorización al consultar la transcripción: ' + (data.error || '');
+                        statusText.textContent = t('poll_auth_error', 'Error de autorización al consultar la transcripción: ') + (data.error || '');
                         return;
                     }
 
                     if (data.status === 'processing' || data.status === 'pending') {
-                        statusText.textContent = 'Procesando transcripción...';
+                        statusText.textContent = t('processing', 'Procesando transcripción...');
                         pollTranscription(jobId);
                     } else if (data.status === 'completed') {
                         // Transcript field is 'text', not 'transcript'
@@ -441,11 +466,11 @@
                         deliverTranscript(data.text || '');
                     } else {
                         activePollingJobId = null;
-                        statusText.textContent = 'Error en transcripción: ' + describeTranscribeError(data.error_code);
+                        statusText.textContent = t('transcription_error', 'Error en transcripción: ') + describeTranscribeError(data.error_code);
                     }
                 })
                 .catch(function (err) {
-                    statusText.textContent = 'Error al consultar estado: ' + err.message;
+                    statusText.textContent = t('poll_status_error', 'Error al consultar estado: ') + err.message;
                 });
             }, 1000);
         }
@@ -455,7 +480,7 @@
          */
         function deliverTranscript(text) {
             activePollingJobId = null;
-            statusText.textContent = 'Transcripción completada.';
+            statusText.textContent = t('transcription_done', 'Transcripción completada.');
             transcriptText.value = text;
             transcriptBox.style.display = 'block';
             btnGenerate.style.display = 'inline-flex';
@@ -486,19 +511,23 @@
                 worker_error: 'Error en el proceso de transcripción.',
                 job_not_found: 'El trabajo de transcripción expiró o no existe.'
             };
-            return (code && messages[code]) ? messages[code] : 'Fallo desconocido';
+            // Each code has a server-translated twin under 'err_' + code.
+            if (code && I18N['err_' + code]) {
+                return I18N['err_' + code];
+            }
+            return (code && messages[code]) ? messages[code] : t('err_unknown', 'Fallo desconocido');
         }
 
         // 13. Generate SOAP Draft via M5 Endpoint
         function generateSoapDraft() {
             const transcript = transcriptText.value.trim();
             if (transcript === '') {
-                alert('No hay transcripción disponible para generar el borrador.');
+                alert(t('no_transcript', 'No hay transcripción disponible para generar el borrador.'));
                 return;
             }
 
             btnGenerate.disabled = true;
-            statusText.textContent = 'Generando borrador SOAP con IA...';
+            statusText.textContent = t('generating_draft', 'Generando borrador SOAP con IA...');
 
             const csrf = getCsrfToken();
             const formData = new FormData();
@@ -520,18 +549,20 @@
                 const data = resObj.data;
 
                 if (data.ok && data.draft) {
-                    statusText.textContent = 'Borrador generado con éxito (' + data.meta.provider + ' - ' + data.meta.total_tokens + ' tokens).';
+                    statusText.textContent = t('draft_ok', 'Borrador generado con éxito (%s - %s tokens).')
+                        .replace('%s', data.meta.provider)
+                        .replace('%s', data.meta.total_tokens);
                     lastDraftPayload = data.draft;
                     applyDraftToForm(data.draft, data.has_verify_markers);
                 } else {
-                    statusText.textContent = 'Error al generar borrador: ' + (data.error || 'Respuesta inválida');
-                    alert('No se pudo generar el borrador: ' + (data.error || 'Error del proveedor'));
+                    statusText.textContent = t('draft_error', 'Error al generar borrador: ') + (data.error || t('invalid_response', 'Respuesta inválida'));
+                    alert(t('draft_alert_failed', 'No se pudo generar el borrador: ') + (data.error || t('provider_error', 'Error del proveedor')));
                 }
             })
             .catch(function (err) {
                 btnGenerate.disabled = false;
-                statusText.textContent = 'Error de conexión: ' + err.message;
-                alert('Error al conectar con el servidor: ' + err.message);
+                statusText.textContent = t('connection_error', 'Error de conexión: ') + err.message;
+                alert(t('connect_failed', 'Error al conectar con el servidor: ') + err.message);
             });
         }
 
@@ -570,7 +601,7 @@
             mapping.forEach(function (m) {
                 if (isAppend) {
                     if (m.el.value.trim() !== '') {
-                        m.el.value = m.el.value.trimEnd() + '\n\n--- Borrador IA ---\n' + m.val;
+                        m.el.value = m.el.value.trimEnd() + '\n\n--- ' + t('ai_draft_marker', 'Borrador IA') + ' ---\n' + m.val;
                     } else {
                         m.el.value = m.val;
                     }
@@ -595,17 +626,18 @@
 
             let verifyNotice = '';
             if (hasVerify) {
-                verifyNotice = '<span class="oe-ai-verify-badge ml-2"><i class="fa fa-exclamation-triangle"></i> Contiene elementos a verificar [VERIFY]</span>';
+                verifyNotice = '<span class="oe-ai-verify-badge ml-2"><i class="fa fa-exclamation-triangle"></i> '
+                    + t('verify_badge', 'Contiene elementos a verificar [VERIFY]') + '</span>';
             }
 
             banner.innerHTML = `
                 <div>
                     <i class="fa fa-shield-alt mr-1"></i>
-                    <strong>Borrador generado por IA:</strong> revisá y editá el contenido antes de guardar la consulta.
+                    <strong>${t('review_banner_title', 'Borrador generado por IA:')}</strong> ${t('review_banner_body', 'revisá y editá el contenido antes de guardar la consulta.')}
                     ${verifyNotice}
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-dark" id="oe-ai-btn-dismiss-banner" style="padding: 2px 8px; font-size: 0.8rem;">
-                    Entendido
+                    ${t('understood', 'Entendido')}
                 </button>
             `;
 
@@ -626,15 +658,15 @@
             overlay.innerHTML = `
                 <div class="oe-ai-modal-card">
                     <div class="oe-ai-modal-header">
-                        <i class="fa fa-question-circle mr-1 text-primary"></i> Contenido previo detectado
+                        <i class="fa fa-question-circle mr-1 text-primary"></i> ${t('prior_content_title', 'Contenido previo detectado')}
                     </div>
                     <div class="oe-ai-modal-body">
-                        Los campos de la nota SOAP ya contienen texto. ¿Cómo deseás incorporar el nuevo borrador generado por la IA?
+                        ${t('prior_content_body', 'Los campos de la nota SOAP ya contienen texto. ¿Cómo deseás incorporar el nuevo borrador generado por la IA?')}
                     </div>
                     <div class="oe-ai-modal-footer">
-                        <button type="button" class="oe-ai-btn oe-ai-btn-discard" id="oe-ai-modal-cancel">Cancelar</button>
-                        <button type="button" class="oe-ai-btn btn-secondary" id="oe-ai-modal-append">Anexar al final</button>
-                        <button type="button" class="oe-ai-btn oe-ai-btn-record" id="oe-ai-modal-replace">Reemplazar todo</button>
+                        <button type="button" class="oe-ai-btn oe-ai-btn-discard" id="oe-ai-modal-cancel">${t('cancel', 'Cancelar')}</button>
+                        <button type="button" class="oe-ai-btn btn-secondary" id="oe-ai-modal-append">${t('append_end', 'Anexar al final')}</button>
+                        <button type="button" class="oe-ai-btn oe-ai-btn-record" id="oe-ai-modal-replace">${t('replace_all', 'Reemplazar todo')}</button>
                     </div>
                 </div>
             `;
@@ -668,7 +700,7 @@
 
                 if (combinedText.includes('[VERIFY')) {
                     const proceed = window.confirm(
-                        'Atención: La nota SOAP aún contiene marcadores [VERIFY: ...] pendientes de confirmación clínica.\n\n¿Deseás guardar de todos modos?'
+                        t('verify_save_confirm', 'Atención: La nota SOAP aún contiene marcadores [VERIFY: ...] pendientes de confirmación clínica.\n\n¿Deseás guardar de todos modos?')
                     );
                     if (!proceed) {
                         e.preventDefault();
@@ -715,18 +747,29 @@
                 consentAllowed = (data.allowed === true);
                 consentMessage = data.message || '';
 
+                // Recording ceiling and translated strings come from the server so the
+                // timer agrees with whisper_max_audio_sec instead of a hardcoded 3 min.
+                if (data.max_audio_sec && parseInt(data.max_audio_sec, 10) > 0) {
+                    maxAudioDurationSec = parseInt(data.max_audio_sec, 10);
+                }
+                if (data.i18n && typeof data.i18n === 'object') {
+                    I18N = data.i18n;
+                    applyI18n();
+                }
+
+
                 if (!consentAllowed) {
                     btnRecord.disabled = true;
                     btnRecord.title = consentMessage;
                     statusText.textContent = consentMessage
-                        || 'El dictado por IA no está habilitado en este servidor.';
+                        || t('gate_blocked_short', 'El dictado por IA no está habilitado en este servidor.');
                 }
             })
             .catch(function () {
                 // Fail closed: never leave recording enabled on an unknown gate state.
                 consentAllowed = false;
                 btnRecord.disabled = true;
-                statusText.textContent = 'No se pudo verificar si el dictado por IA está habilitado.';
+                statusText.textContent = t('gate_unknown', 'No se pudo verificar si el dictado por IA está habilitado.');
             });
         }
     }

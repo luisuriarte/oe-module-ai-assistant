@@ -75,17 +75,8 @@ class TranscribeController
             return;
         }
 
-        $userId = (int) (
-            $session->get('authUserID')
-            ?? $session->get('authId')
-            ?? $_SESSION['authUserID']
-            ?? $_SESSION['authId']
-            ?? 0
-        );
-        if ($userId <= 0 && (!empty($_SESSION['authUser']) || !empty($session->get('authUser')))) {
-            $userId = 1;
-        }
-        if ($userId <= 0) {
+        $userId = SessionAccessor::currentUserId();
+        if ($userId === null) {
             http_response_code(401);
             echo json_encode(['error' => 'unauthorized']);
             return;
@@ -229,6 +220,7 @@ class TranscribeController
         // 6. Setup Secure Job Directory outside web root
         $jobDir = $this->getSecureJobDir();
         $this->cleanOrphanFiles($jobDir);
+        $this->purgeFinishedJobs($jobDir);
 
         // Move uploaded file to secure storage with 0600 permissions
         $tempAudioPath = $jobDir . DIRECTORY_SEPARATOR . bin2hex(random_bytes(16)) . '.tmp';
@@ -334,21 +326,12 @@ class TranscribeController
             echo json_encode(['error' => 'unauthorized']);
             exit;
         }
-        $userId  = (int) (
-            $session->get('authUserID')
-            ?? $session->get('authId')
-            ?? $_SESSION['authUserID']
-            ?? $_SESSION['authId']
-            ?? 0
-        );
-        if ($userId <= 0 && (!empty($_SESSION['authUser']) || !empty($session->get('authUser')))) {
-            $userId = 1;
-        }
+        $userId = SessionAccessor::currentUserId();
 
         // Read-only session: release lock immediately
         session_write_close();
 
-        if ($userId <= 0) {
+        if ($userId === null) {
             http_response_code(401);
             echo json_encode(['error' => 'unauthorized']);
             return;
@@ -365,6 +348,7 @@ class TranscribeController
         }
 
         $jobDir  = $this->getSecureJobDir();
+        $this->purgeFinishedJobs($jobDir);
         $jobMeta = $this->readJobMeta($jobDir, $jobId);
 
         if (empty($jobMeta) || time() > ($jobMeta['expires_at'] ?? 0)) {
@@ -519,13 +503,23 @@ class TranscribeController
                 @unlink($tempAudioPath);
             }
 
-            // Guaranteed release of exclusive lock
+            // Guaranteed release of exclusive lock.
+            //
+            // The lock file is deliberately NOT unlinked. Unlinking here races with other
+            // workers: a process waiting on the path would keep locking the old inode
+            // while a third process creates a new file at the same path, so two workers
+            // could both enter the critical section. The file is 0 bytes and lives in the
+            // system temp dir, so leaving it costs nothing.
+            //
+            // Deployment note: sys_get_temp_dir() must be shared by every PHP worker that
+            // serves this module.
+            //   - php-fpm pool with PrivateTmp=yes  → each pool gets a private /tmp, so
+            //     set sys_temp_dir in php.ini to a common path (e.g. /var/tmp/oe-ai) or
+            //     turn off PrivateTmp for that pool.
+            //   - Apache mod_php or a single fpm pool → already shared; nothing to do.
             if (is_resource($lockFp)) {
                 flock($lockFp, LOCK_UN);
                 fclose($lockFp);
-            }
-            if (file_exists($lockFile)) {
-                @unlink($lockFile);
             }
         }
     }
@@ -663,6 +657,57 @@ class TranscribeController
                     @unlink($file);
                 }
             }
+        }
+    }
+
+    /**
+     * Removes job records that can never be served again: jobs past their own
+     * expires_at, and completed/errored jobs whose transcript was never collected.
+     *
+     * Runs on every status poll as well as on submit. Relying on submit alone left
+     * transcripts of abandoned sessions (user closes the tab before the first poll)
+     * sitting in the job directory until some later unrelated submission happened to
+     * run cleanOrphanFiles().
+     *
+     * Completed jobs get a 15 minute grace window measured from mtime so a client
+     * polling every second is never raced out of its own result.
+     */
+    private function purgeFinishedJobs(string $dir): void
+    {
+        $now   = time();
+        $grace = $now - 900;
+
+        $metaFiles = @glob($dir . DIRECTORY_SEPARATOR . '*.json');
+        if (!is_array($metaFiles)) {
+            return;
+        }
+
+        foreach ($metaFiles as $metaFile) {
+            if (!is_file($metaFile)) {
+                continue;
+            }
+
+            $raw = @file_get_contents($metaFile);
+            $meta = json_decode((string) $raw, true);
+            if (!is_array($meta)) {
+                if (filemtime($metaFile) < $grace) {
+                    @unlink($metaFile);
+                }
+                continue;
+            }
+
+            $terminal = ($meta['status'] ?? '') === 'completed'
+                || ($meta['status'] ?? '') === 'error';
+            $expired  = !empty($meta['expires_at']) && $now > (int) $meta['expires_at'];
+            $stale    = $terminal && filemtime($metaFile) < $grace;
+
+            if (!$expired && !$stale) {
+                continue;
+            }
+
+            $jobId = basename($metaFile, '.json');
+            @unlink($metaFile);
+            @unlink($dir . DIRECTORY_SEPARATOR . $jobId . '.txt');
         }
     }
 

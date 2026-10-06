@@ -10,6 +10,7 @@
  *   $message       string   Status message after POST
  *   $success       bool
  *   $webRoot       string
+ *   $auditFailures int      Failed audit-table inserts (0 = audit trail is healthy)
  *
  * @package   OpenEMR
  * @subpackage AiAssistant
@@ -54,6 +55,19 @@ use OpenEMR\Core\Header;
     <div class="alert alert-<?php echo $success ? 'success' : 'danger'; ?> alert-dismissible">
         <?php echo text($message); ?>
         <button type="button" class="close" data-dismiss="alert">&times;</button>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($auditFailures)): ?>
+    <div class="alert alert-warning">
+        <?php
+        echo text(
+            sprintf(
+                xl('Audit log write failures: %s. Records for those operations were not saved. Schema upgrade may be pending.'),
+                $auditFailures
+            )
+        );
+        ?>
     </div>
     <?php endif; ?>
 
@@ -689,7 +703,7 @@ use OpenEMR\Core\Header;
                     statusText.className = 'text-success font-weight-bold';
                     statusText.textContent = '<?php echo xlt('Transcription completed!'); ?>';
                     outputArea.value = data.text;
-                    metaText.textContent = 'Latency: ' + (data.duration_ms || 0) + ' ms | Job: ' + jobId;
+                    metaText.textContent = '<?php echo xlt('Latency:'); ?> ' + (data.duration_ms || 0) + ' ms | Job: ' + jobId;
                     return;
                 }
 
@@ -724,11 +738,11 @@ use OpenEMR\Core\Header;
                             statusText.className = 'text-success font-weight-bold';
                             statusText.textContent = '<?php echo xlt('Transcription completed!'); ?>';
                             outputArea.value = pData.text || '';
-                            metaText.textContent = 'Duration: ' + (pData.duration_ms || 0) + ' ms | Job: ' + jobId;
+                            metaText.textContent = '<?php echo xlt('Duration:'); ?> ' + (pData.duration_ms || 0) + ' ms | Job: ' + jobId;
                         } else if (pData.status === 'error') {
                             stopTestBenchPolling();
                             statusText.className = 'text-danger font-weight-bold';
-                            statusText.textContent = '<?php echo xlt('Transcription failed:'); ?> ' + (pData.error_code || 'unknown error');
+                            statusText.textContent = '<?php echo xlt('Transcription failed:'); ?> ' + (pData.error_code || '<?php echo xlt('Unknown error occurred'); ?>');
                         }
                     })
                     .catch(function (pollErr) {

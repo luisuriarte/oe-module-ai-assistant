@@ -179,37 +179,122 @@ class PatientContextBuilder
         // Comprehensive list of medical dose, measurement, and lab units to protect from redaction
         $clinicalUnits = '(?:UI|IU|U|mg|mcg|µg|ug|g|gr|grs|gramos?|kg|kgs|kilos?|ml|mL|l|lt|litros?|cc|mEq|mmol|dL|mol|gotas?|puffs?|ampollas?|comprimidos?|comp|capsulas?|tabletas?|sobres?|mmHg|bpm|lpm|rpm|°C|°F|%|fl|pg|U\/L|UI\/L|horas?|hs|dias?|días?|veces|cada)';
 
-        // 2. Redact Argentine DNI with dots (e.g. 34.567.890), protecting clinical dosing (e.g. 2.400.000 UI)
+        // Volumetric/count suffixes that follow clinical numbers (e.g. "4.500.000 /mm3")
+        $labSuffix = '(?:mm3|mm³|mm\^3|micra|cmm|x\s*10\^?[3-9])';
+
+        // Keywords that mark an adjacent number as a person identifier or a telephone.
+        $idKeywords   = '(?:\bDNI\b|\bdni\b|Documento|documento|CUIL|cuil|CUIT|cuit|Pasaporte|pasaporte|Cédula|cedula|Identidad|identidad|Legajo|legajo)';
+        $telKeywords  = '(?:\bT[Ee]L\b|Tel[eé]fono|telefono|Fono|\bCEL\b|Celular|celular|WhatsApp|whatsapp|\bWA\b|Tel|Tel\.|fijo|movil|móvil|Móvil|\bFax\b|fax|Phone|phone)';
+
+        // 2. Argentine DNI / CUIL with dots (e.g. 34.567.890).
+        //    Never redact a clinical figure such as 4.500.000 or 2.400.000 when a unit or a
+        //    /mm3-style lab suffix follows, nor a slash-delimited count such as 120/80.
         $text = preg_replace(
-            '/\b\d{1,2}\.\d{3}\.\d{3}\b(?!\s*' . $clinicalUnits . '\b)(?![\/])/i',
+            '/\b\d{1,2}\.\d{3}\.\d{3}\b'
+            . '(?!\s*' . $clinicalUnits . '\b)'
+            . '(?!\s*\/\s*' . $labSuffix . '\b)'
+            . '(?!\s*' . $labSuffix . '\b)'
+            . '(?!\/)/i',
             '[REDACTED-ID]',
             $text
         );
 
-        // 3. Redact US SSN format (xxx-xx-xxxx)
+        // 3. US SSN format (xxx-xx-xxxx) — fixed structure, no extra evidence needed.
         $text = preg_replace(
             '/\b\d{3}-\d{2}-\d{4}\b/',
             '[REDACTED-ID]',
             $text
         );
 
-        // 4. Redact Phone numbers (international, Argentine 11-xxxx-xxxx, US (xxx) xxx-xxxx, etc.)
-        // Protect numbers followed by measurement units or slashes (e.g. 120/80)
+        // 4. CUIL/CUIT with hyphens (XX-XX-XXXXXX) or a bare 11-digit run whose check digit
+        //    validates. A wrong check digit means it is not a real CUIL, so a plain number
+        //    stays untouched.
+        $text = preg_replace_callback(
+            '/\b(?:\d{2}-\d{2}-\d{6}|\d{11})\b/',
+            function ($m) {
+                $digits = preg_replace('/\D/', '', $m[0]);
+                if ($digits === null || strlen($digits) !== 11 || !self::isValidCuilCheckDigit($digits)) {
+                    return $m[0];
+                }
+
+                return '[REDACTED-ID]';
+            },
+            $text
+        );
+
+        // 5. Phone numbers. Structure is required: three or more digit groups separated by
+        //    hyphens/spaces/dots, parentheses, a + or 00 country prefix — or a keyword such
+        //    as tel/cel/whatsapp. Bare digit runs are never phones.
+        $phonePattern =
+            // Group of three: 11-4567-8901 / 11 4567 8901 / +54 11 4567 8901
+            '(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)\d{3,4}[-.\s]\d{3,4}\b'
+            // Parenthesised area code: (011) 4567-8901
+            . '|\(\d{2,4}\)\s?\d{3,4}[-.\s]?\d{3,4}\b'
+            // Keyword in front of a looser number: tel 4567-8901 / whatsapp 1145678901
+            . '|(?:\b(?:' . $telKeywords . ')\b\s*[:=]?\s*)(?:\+?\d{1,3}[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}(?:[-.\s]?\d{3,4})?\b';
         $text = preg_replace(
-            '/(?:\+?\d{1,3}[-\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-\s]?\d{3,4}\b(?!\s*' . $clinicalUnits . '\b)(?![\/])/i',
+            '/' . $phonePattern
+            . '(?!\s*(?:' . $clinicalUnits . '|' . $labSuffix . ')\b)'
+            . '(?![\/])/iu',
             '[REDACTED-PHONE]',
             $text
         );
 
-        // 5. Redact Sequences of 7 to 11 digits (National IDs, CUIL/CUIT, passports)
-        // Must NOT match clinical numbers followed by units or dates delimited by - or /
-        $text = preg_replace(
-            '/(?<![\/-])\b\d{7,11}\b(?!\s*' . $clinicalUnits . '\b)(?![\/-])/i',
-            '[REDACTED-ID]',
+        // 6. Bare digit runs (6 or more) are only identifiers when a keyword says so —
+        //    DNI 34567890, documento 2034567890. Lab results such as plaquetas 250000 or
+        //    troponina 123456 carry no keyword and are left intact.
+        $text = preg_replace_callback(
+            '/(' . $idKeywords . ')\s*([A-Z]{0,3}\s?[0-9][0-9\s.\-]{4,}[0-9]|[0-9]{6,})/ui',
+            function ($m) {
+                // Only redact when the run really holds six or more digits; a keyword in
+                // front of a short number is not enough evidence.
+                $digits = preg_replace('/\D/', '', (string) $m[2]);
+                if ($digits === null || strlen($digits) < 6) {
+                    return $m[0];
+                }
+
+                return $m[1] . ' [REDACTED-ID]';
+            },
             $text
         );
-
         return (string) $text;
+    }
+
+    /**
+     * Validates an 11-digit CUIL/CUIT number against the AFIP mod-11 check digit.
+     *
+     * Weights 5,4,3,2,7,6,5,4,3,2 are applied to the first ten digits. A remainder of 11
+     * yields check digit 0; a remainder of 10 yields 9. Also rejects the tax IDs that
+     * cannot appear as a person's CUIL.
+     */
+    private static function isValidCuilCheckDigit(string $digits): bool
+    {
+        if (strlen($digits) !== 11 || !ctype_digit($digits)) {
+            return false;
+        }
+
+        // Valid CUIL/CUIT prefixes for a natural person: 20,23,24,27,28,30 (and foreign
+        // residents 20,23,24,27,28,30, plus 50/51/52 as legal entities).
+        $prefix = (int) substr($digits, 0, 2);
+        if (!in_array($prefix, [20, 23, 24, 27, 28, 30, 50, 51, 52], true)) {
+            return false;
+        }
+
+        $weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+        $sum     = 0;
+        for ($i = 0; $i < 10; $i++) {
+            $sum += ((int) $digits[$i]) * $weights[$i];
+        }
+
+        $mod = $sum % 11;
+        $check = 11 - $mod;
+        if ($check === 11) {
+            $check = 0;
+        } elseif ($check === 10) {
+            $check = 9;
+        }
+
+        return $check === (int) $digits[10];
     }
 
     /**

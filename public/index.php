@@ -33,21 +33,16 @@ if ($session === null) {
     echo json_encode(['error' => 'unauthorized']);
     exit;
 }
-$userId  = (int) (
-    $session->get('authUserID')
-    ?? $session->get('authId')
-    ?? $_SESSION['authUserID']
-    ?? $_SESSION['authId']
-    ?? 0
-);
-$authUser = (string) ($session->get('authUser') ?? $_SESSION['authUser'] ?? '');
+$userId = SessionAccessor::currentUserId();
 
-if ($userId <= 0 && $authUser === '') {
+// Fail closed: without a resolved user id there is no authenticated identity to bind
+// ACLs, audit records or job ownership to. A username alone is not sufficient.
+if ($userId === null) {
     http_response_code(401);
     exit(json_encode(['error' => xlt('Unauthorized')]));
 }
 
-if (empty($_SESSION['authUserID']) && $userId > 0) {
+if (empty($_SESSION['authUserID'])) {
     $_SESSION['authUserID'] = $userId;
 }
 

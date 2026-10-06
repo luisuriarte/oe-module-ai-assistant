@@ -96,7 +96,108 @@ class SettingsController
             'allowed' => $allowed,
             'reason'  => $reason,
             'message' => $message,
+            // Recording ceiling derived from the admin setting, so the client timer and
+            // its "limit reached" text track whisper_max_audio_sec instead of a hardcoded
+            // 3 minutes that silently disagreed with the server-side validation.
+            'max_audio_sec' => (int) $this->settings->get('whisper_max_audio_sec', 180),
+            'i18n'          => self::dictationStrings(),
         ]);
+    }
+
+    /**
+     * Server-side translations for the dictation toolbar.
+     *
+     * public/assets/js/ai-dictation.js is a static file with no PHP, and
+     * ScriptFilterEvent cannot carry an inline config object (setScripts() runs every
+     * URL through ModulesApplication::filterSafeLocalModuleFiles()). So the strings are
+     * shipped over this endpoint, which the toolbar already calls on init.
+     *
+     * Keys are stable snake_case identifiers; values are xlt() output for the active
+     * language. Payload only — no settings, no provider, no PHI.
+     *
+     * @return array<string, string>
+     */
+    private static function dictationStrings(): array
+    {
+        return [
+            // Toolbar
+            'title'                 => xlt('Clinical AI Dictation'),
+            'record'                => xlt('Record'),
+            'stop'                  => xlt('Stop'),
+            'discard'               => xlt('Discard'),
+            'generate_soap'         => xlt('Generate SOAP Note'),
+            'ready'                 => xlt('Ready to dictate'),
+            'transcript_label'      => xlt('Dictation transcript (you can edit it before generating the draft):'),
+            'transcript_placeholder' => xlt('The consultation transcript will appear here...'),
+
+            // Recording / upload status
+            'recording'             => xlt('Recording consultation...'),
+            'audio_limit_reached'   => xlt('Audio limit reached (%d min). Processing...'),
+            'audio_recorded'        => xlt('Audio recorded. Uploading...'),
+            'recording_discarded'   => xlt('Recording discarded.'),
+            'sending_audio'         => xlt('Uploading audio to the Whisper server...'),
+            'busy_retry'            => xlt('Server busy. Retrying upload in 3 s...'),
+            'upload_error'          => xlt('Upload error: '),
+            'transcribing'          => xlt('Transcribing audio (Whisper)...'),
+            'upload_network_error'  => xlt('Network error uploading audio: '),
+            'busy_waiting'          => xlt('Transcription server busy. Waiting in queue...'),
+            'job_expired'           => xlt('The transcription expired or does not exist. Record again.'),
+            'poll_auth_error'       => xlt('Authorization error checking the transcription: '),
+            'processing'            => xlt('Processing transcription...'),
+            'transcription_error'   => xlt('Transcription error: '),
+            'transcription_done'    => xlt('Transcription complete.'),
+            'poll_status_error'     => xlt('Error checking status: '),
+
+            // Draft generation
+            'no_transcript'         => xlt('No transcription available to generate the draft.'),
+            'generating_draft'      => xlt('Generating SOAP draft with AI...'),
+            'draft_ok'              => xlt('Draft generated successfully (%s - %s tokens).'),
+            'draft_error'           => xlt('Error generating draft: '),
+            'invalid_response'      => xlt('Invalid response'),
+            'draft_alert_failed'    => xlt('Could not generate the draft: '),
+            'provider_error'        => xlt('Provider error'),
+            'connection_error'      => xlt('Connection error: '),
+            'connect_failed'        => xlt('Could not connect to the server: '),
+            'ai_draft_marker'       => xlt('AI draft'),
+            'verify_badge'          => xlt('Contains items to verify [VERIFY]'),
+            'review_banner'         => xlt('AI-generated draft: review and edit the content before saving the encounter.'),
+            'understood'            => xlt('Got it'),
+            'prior_content_title'   => xlt('Previous content detected'),
+            'prior_content_body'    => xlt('The SOAP note fields already contain text. How would you like to incorporate the new AI-generated draft?'),
+            'cancel'                => xlt('Cancel'),
+            'append_end'            => xlt('Append at the end'),
+            'replace_all'           => xlt('Replace everything'),
+            'verify_save_confirm'   => xlt("Warning: the SOAP note still contains pending [VERIFY: ...] markers.\n\nSave anyway?"),
+
+            // Consent gate / microphone
+            'gate_blocked'          => xlt('AI dictation is not enabled on this server. Contact your administrator.'),
+            'gate_blocked_short'    => xlt('AI dictation is not enabled on this server.'),
+            'gate_unknown'          => xlt('Could not verify whether AI dictation is enabled.'),
+            'no_recording_support'  => xlt('Audio recording is not supported in this browser.'),
+            'mic_denied'            => xlt('Microphone permission denied. Please allow microphone access in the browser to dictate.'),
+            'mic_not_found'         => xlt('No microphone found connected to this device.'),
+            'mic_error'             => xlt('Error accessing the microphone: '),
+
+            // Transcribe error codes (code => human text)
+            'err_invalid_csrf'              => xlt('Invalid CSRF token. Reload the page.'),
+            'err_unauthorized'              => xlt('Unauthenticated or expired session.'),
+            'err_access_denied'             => xlt('You do not have permission to use AI dictation.'),
+            'err_invalid_clinical_context'  => xlt('The patient or encounter could not be validated.'),
+            'err_clinical_context_mismatch' => xlt('The job does not belong to this patient or encounter.'),
+            'err_no_audio_file'             => xlt('No audio file was received.'),
+            'err_invalid_upload'            => xlt('Invalid audio file.'),
+            'err_file_too_large'            => xlt('The audio exceeds the maximum allowed size.'),
+            'err_unsupported_audio_format'  => xlt('Unsupported audio format.'),
+            'err_invalid_whisper_configuration' => xlt('The Whisper URL is invalid or unreachable.'),
+            'err_storage_error'             => xlt('Server storage error.'),
+            'err_busy'                      => xlt('The transcription engine is busy. Try again in a few seconds.'),
+            'err_worker_timeout'            => xlt('The transcription exceeded the maximum allowed time.'),
+            'err_worker_exception'          => xlt('Internal server error during transcription.'),
+            'err_transcription_failed'      => xlt('Transcription failed.'),
+            'err_worker_error'              => xlt('Error in the transcription process.'),
+            'err_job_not_found'             => xlt('The transcription job expired or does not exist.'),
+            'err_unknown'                   => xlt('Unknown failure'),
+        ];
     }
 
     // -------------------------------------------------------------------------
@@ -198,6 +299,10 @@ class SettingsController
 
         $consentGiven = $this->settings->isConsentGiven();
         $siteId       = $session->get('site_id') ?? $_SESSION['site_id'] ?? ($GLOBALS['site_id'] ?? 'default');
+
+        // Count of audit inserts that could not be written, so a broken audit trail is
+        // visible from the admin UI instead of failing silently.
+        $auditFailures = AuditLogger::failureCount();
 
         // Include the settings template
         $templatePath = __DIR__ . '/../../templates/settings.php';
@@ -323,13 +428,12 @@ class SettingsController
             return;
         }
 
-        $userId = (int) (
-            $session->get('authUserID')
-            ?? $session->get('authId')
-            ?? $_SESSION['authUserID']
-            ?? $_SESSION['authId']
-            ?? 1
-        );
+        $userId = SessionAccessor::currentUserId();
+        if ($userId === null) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'error' => xlt('Not authenticated.')]);
+            return;
+        }
 
         $provider = trim((string) ($_POST['provider'] ?? ''));
         $prompt   = trim((string) ($_POST['prompt'] ?? ''));
@@ -446,13 +550,12 @@ class SettingsController
             return;
         }
 
-        $userId = (int) (
-            $session->get('authUserID')
-            ?? $session->get('authId')
-            ?? $_SESSION['authUserID']
-            ?? $_SESSION['authId']
-            ?? 1
-        );
+        $userId = SessionAccessor::currentUserId();
+        if ($userId === null) {
+            http_response_code(401);
+            echo json_encode(['ok' => false, 'error' => xlt('Not authenticated.')]);
+            return;
+        }
 
         $pid = (int) ($_POST['pid'] ?? 0);
         if ($pid <= 0) {
