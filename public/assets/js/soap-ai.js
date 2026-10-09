@@ -2,8 +2,9 @@
  * soap-ai.js — editor logic for the SOAP-AI form (Layer 1 dictation + Layer 2 chat).
  *
  * This is the modern replacement UI that the "IA" button on the native SOAP form opens.
- * It reuses the proven flows from ai-dictation.js and ai-chat.js but renders into a
- * fixed template (templates/soap_ai.php) instead of injecting DOM into the native form.
+ * It consolidates the dictation and chat flows (the former ai-dictation.js / ai-chat.js
+ * widgets) into a single editor rendering into templates/soap_ai.php instead of
+ * injecting DOM into the native form.
  *
  * Contracts:
  *   1. Storage is unchanged: the Save action (index.php?action=soap_ai_save) writes
