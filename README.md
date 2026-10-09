@@ -11,13 +11,14 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 ## Features
 
 ### Layer 1 — Dictation to SOAP Draft
-1. The clinician opens a patient encounter and selects the **SOAP** form.
-2. An **AI Dictation** control appears (record / stop / discard).
-3. Audio is transcribed locally by a **whisper.cpp** server — audio never leaves the host.
-4. The clinician reviews and edits the transcript.
-5. Click **Generate Draft** — the transcript plus a minimised patient chart context are sent to the configured AI provider.
-6. The four SOAP fields (*Subjective, Objective, Assessment, Plan*) are filled automatically, with a visible banner: _"AI-generated draft — review before saving"_.
-7. Nothing is saved to the chart until the clinician clicks the standard **Save** button.
+1. The clinician opens a patient encounter and opens the native **SOAP** form.
+2. The native form's **AI** button opens the **SOAP with AI** form: a modern editor that reads and writes the exact same `form_soap` row (it is not a new table and not a separately registered form; it is reachable only from that button).
+3. Inside the editor an **AI Dictation** control appears (record / stop / discard).
+4. Audio is transcribed locally by a **whisper.cpp** server — audio never leaves the host.
+5. The clinician reviews and edits the transcript.
+6. Click **Generate SOAP Note** — the transcript plus a minimised patient chart context are sent to the configured AI provider.
+7. The four SOAP fields (*Subjective, Objective, Assessment, Plan*) are filled automatically, with a visible banner: _"AI-generated draft — review before saving"_.
+8. Saving persists to `form_soap` + `forms` (with `formdir = 'soap'`, exactly like the native form) and returns to the native SOAP form. Nothing reaches the chart before that point.
 
 ### Layer 2 — Patient Chat Panel *(optional, enable in settings)*
 - A side panel scoped to the current patient.
@@ -49,14 +50,18 @@ oe-module-ai-assistant/
 │   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
 │   ├── Provider/Exception/         Fixed error codes, never leaks provider bodies
 │   ├── Controller/                 Session + CSRF + ACL-protected endpoints
+│   │                               (+ SoapAiFormController: SOAP-AI editor and save into form_soap)
 │   ├── Audit/AuditLogger           Metadata-only audit trail + schema self-heal
-│   └── EventListener/              ScriptFilterEvent → injects JS into SOAP form
+│   └── EventListener/              ScriptFilterEvent → adds the "AI" button to native SOAP
 │
 ├── public/                         Web-accessible; every file enforces session + ACL
-│   ├── index.php                   Front controller / router
-│   └── assets/js|css               Dictation control and chat panel widgets
+│   ├── index.php                   Front controller / router (includes soap_ai_save)
+│   ├── form.php                    SOAP-AI editor page (HTML)
+│   └── assets/js|css               SOAP-AI editor, "AI" launcher and styles
 │
-├── templates/settings.php          Admin settings form (PHP template)
+├── templates/
+│   ├── settings.php                Admin settings form (PHP template)
+│   └── soap_ai.php                 SOAP-AI editor template
 └── sql/
     ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings
     ├── upgrade.sql                 Idempotent ALTERs, run on install / enable / upgrade

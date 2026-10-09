@@ -112,10 +112,11 @@ class SettingsController
     /**
      * Server-side translations for the dictation toolbar.
      *
-     * public/assets/js/ai-dictation.js is a static file with no PHP, and
-     * ScriptFilterEvent cannot carry an inline config object (setScripts() runs every
-     * URL through ModulesApplication::filterSafeLocalModuleFiles()). So the strings are
-     * shipped over this endpoint, which the toolbar already calls on init.
+     * public/assets/js/soap-ai.js is a static file with no PHP, and it is the editor
+     * that consumes these strings. ScriptFilterEvent cannot carry an inline config
+     * object (setScripts() runs every URL through
+     * ModulesApplication::filterSafeLocalModuleFiles()). So the strings are
+     * shipped over this endpoint, which the editor already calls on init.
      *
      * Keys are stable snake_case identifiers; values are xlt() output for the active
      * language. Payload only — no settings, no provider, no PHI.

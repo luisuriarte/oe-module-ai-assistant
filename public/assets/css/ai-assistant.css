@@ -507,3 +507,33 @@
     background: #9ca3af;
     cursor: not-allowed;
 }
+
+/* ==========================================================================
+   Native SOAP "IA" launcher (opens the SOAP-AI editor)
+   ========================================================================== */
+
+.oe-ai-launch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #ffffff;
+    border: 1px solid #1d4ed8;
+    font-weight: 600;
+}
+
+.oe-ai-launch-btn:hover,
+.oe-ai-launch-btn:focus {
+    background: linear-gradient(135deg, #1d4ed8, #6d28d9);
+    color: #ffffff;
+}
+
+.oe-ai-launch-btn-floating {
+    position: fixed;
+    right: 16px;
+    bottom: 20px;
+    z-index: 12000;
+    padding: 10px 16px;
+    border-radius: 999px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}

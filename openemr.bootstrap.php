@@ -34,7 +34,7 @@ $classLoader->registerNamespaceIfNotExists(
 );
 
 // Register event listeners.
-// SoapFormScriptListener injects our JS & CSS into the SOAP form <head>.
+// SoapFormScriptListener adds the "AI" launcher button + stylesheet to the native SOAP form.
 $soapListener = new SoapFormScriptListener();
 $eventDispatcher->addListener(
     ScriptFilterEvent::EVENT_NAME,

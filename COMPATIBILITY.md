@@ -59,8 +59,12 @@ Last updated: M5
 | `AclMain::aclCheckCore('patients', 'med')` | `OpenEMR\Common\Acl` | ✅ | ✅ | Identical. Native patient clinical chart access check |
 | `lists` schema (`type='allergy'`, `activity=1`) | OpenEMR DB | ✅ | ✅ | Universal source of truth for active allergies in both 8.2.0 and 8.4.1 |
 | `forms.deleted = 0` check | OpenEMR DB | ✅ | ✅ | Soft-delete convention used across all clinical encounter forms |
-| `SoapFormScriptListener` | `OpenEMR\Modules\AiAssistant\EventListener` | ✅ | ✅ | Listens to `ScriptFilterEvent` & `StyleFilterEvent` in `load_form.php` and `view_form.php` |
-| Native SOAP textareas | DOM (`subjective`, `objective`, `assessment`, `plan`) | ✅ | ✅ | Form elements populated via `.value` / `.textContent` only (no HTML injection) |
+| `SoapFormScriptListener` | `OpenEMR\Modules\AiAssistant\EventListener` | ✅ | ✅ | Listens to `ScriptFilterEvent` & `StyleFilterEvent` in `load_form.php` and `view_form.php` and adds the "AI" launcher button |
+| Native SOAP DOM (`textarea[name="subjective"]`, `.btn-group`, `input[name="pid"|"id"]`) | DOM | ✅ | ✅ | Same template in both versions; the launcher only reads it to build the editor URL |
+| `FormService::addForm()` | `OpenEMR\Services` | ✅ | ✅ | Creates the `forms` row for a new note with `formdir='soap'` (identical to native SOAP save) |
+| `QueryUtils::sqlInsert()` | `OpenEMR\Common\Database` | ✅ | ✅ | Returns the inserted `form_soap` id in both versions |
+| `form_soap` columns (`subjective`, `objective`, `assessment`, `plan`, `activity`) | OpenEMR DB | ✅ | ✅ | Unchanged between versions; the editor writes the same columns as `C_FormSOAP` |
+| SOAP-AI editor (`public/form.php`, `soap-ai.js`) | `OpenEMR\Modules\AiAssistant` | ✅ | ✅ | Modern editor reading/writing the native `form_soap`; reachable only from the native "AI" button |
 | `SoapDraftGenerator` | `OpenEMR\Modules\AiAssistant\Draft` | ✅ | ✅ | Schema validation, single-retry correction, groundedness & prompt-injection defense |
 | `DraftController` (`action=soap_draft`) | `OpenEMR\Modules\AiAssistant\Controller` | ✅ | ✅ | Session, CSRF, ACL use, patient access, cross-patient check, 60s timeout, metadata-only audit |
 | `MediaRecorder` audio recording | Web API | ✅ | ✅ | Safari `audio/mp4;codecs=mp4a.40.2` & Chrome/Firefox `audio/webm;codecs=opus` fallback |

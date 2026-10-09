@@ -24,6 +24,7 @@ use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Controller\ChatController;
 use OpenEMR\Modules\AiAssistant\Controller\DraftController;
 use OpenEMR\Modules\AiAssistant\Controller\SettingsController;
+use OpenEMR\Modules\AiAssistant\Controller\SoapAiFormController;
 use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
 
 // --- Session guard ---
@@ -60,6 +61,7 @@ $routes = [
     'transcribe_submit' => [TranscribeController::class, 'submit', 'ai_assistant', 'use'],
     'transcribe_status' => [TranscribeController::class, 'status', 'ai_assistant', 'use'],
     'soap_draft'        => [DraftController::class, 'createDraft', 'ai_assistant', 'use'],
+    'soap_ai_save'      => [SoapAiFormController::class, 'save', 'ai_assistant', 'use'],
     'chat'              => [ChatController::class, 'send', 'ai_assistant', 'use'],
 ];
 

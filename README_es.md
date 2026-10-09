@@ -11,13 +11,14 @@ Módulo personalizado de OpenEMR que ayuda a los médicos a redactar notas SOAP 
 ## Funcionalidades
 
 ### Capa 1 — Dictado a Borrador SOAP
-1. El médico abre una consulta del paciente y selecciona el formulario **SOAP**.
-2. Aparece un control de **Dictado IA** (grabar / detener / descartar).
-3. El audio se transcribe localmente mediante un servidor **whisper.cpp** — el audio nunca sale del servidor.
-4. El médico revisa y corrige la transcripción.
-5. Al hacer clic en **Generar Borrador**, la transcripción más un contexto minimizado de la historia clínica se envían al proveedor de IA configurado.
-6. Los cuatro campos SOAP (*Subjetivo, Objetivo, Evaluación, Plan*) se completan automáticamente, con un banner visible: _"Borrador generado por IA — revise antes de guardar"_.
-7. Nada se guarda en la historia clínica hasta que el médico haga clic en el botón estándar **Guardar**.
+1. El médico abre una consulta del paciente y abre el formulario **SOAP** nativo.
+2. El botón **IA** del SOAP nativo abre el formulario **SOAP con IA**: un editor moderno que lee y escribe exactamente la misma fila de `form_soap` (no es una tabla nueva ni un formulario registrado por separado; solo se llega a él desde el botón).
+3. Dentro del editor aparece el control de **Dictado IA** (grabar / detener / descartar).
+4. El audio se transcribe localmente mediante un servidor **whisper.cpp** — el audio nunca sale del servidor.
+5. El médico revisa y corrige la transcripción.
+6. Al hacer clic en **Generar Nota SOAP**, la transcripción más un contexto minimizado de la historia clínica se envían al proveedor de IA configurado.
+7. Los cuatro campos SOAP (*Subjetivo, Objetivo, Evaluación, Plan*) se completan automáticamente, con un banner visible: _"Borrador generado por IA — revise antes de guardar"_.
+8. Al guardar, el editor persiste en `form_soap` + `forms` (con `formdir = 'soap'`, igual que el SOAP nativo) y regresa al formulario SOAP nativo. Nada se escribe en la historia clínica antes de ese momento.
 
 ### Capa 2 — Panel de Chat del Paciente *(opcional, habilitar en configuración)*
 - Panel lateral con alcance limitado al paciente actual.
@@ -49,14 +50,18 @@ oe-module-ai-assistant/
 │   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
 │   ├── Provider/Exception/         Códigos de error fijos; nunca filtra respuestas del proveedor
 │   ├── Controller/                 Endpoints protegidos: sesión + CSRF + ACL
+│   │                               (+ SoapAiFormController: editor SOAP-AI y guardado en form_soap)
 │   ├── Audit/AuditLogger           Registro de auditoría (solo metadatos) + auto-reparación de esquema
-│   └── EventListener/              ScriptFilterEvent → inyecta JS en el formulario SOAP
+│   └── EventListener/              ScriptFilterEvent → agrega el botón "IA" al SOAP nativo
 │
 ├── public/                         Accesible por web; todos los archivos verifican sesión + ACL
-│   ├── index.php                   Controlador frontal / router
-│   └── assets/js|css               Controles de dictado y chat
+│   ├── index.php                   Controlador frontal / router (incluye soap_ai_save)
+│   ├── form.php                    Página del editor SOAP-AI (HTML)
+│   └── assets/js|css               Editor SOAP-AI, launcher "IA" y estilos
 │
-├── templates/settings.php          Formulario de configuración (plantilla PHP)
+├── templates/
+│   ├── settings.php                Formulario de configuración (plantilla PHP)
+│   └── soap_ai.php                 Plantilla del editor SOAP-AI
 └── sql/
     ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings
     ├── upgrade.sql                 ALTER idempotentes; se ejecuta al instalar/habilitar/actualizar

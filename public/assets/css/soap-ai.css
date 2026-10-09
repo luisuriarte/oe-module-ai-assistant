@@ -1,0 +1,214 @@
+/**
+ * soap-ai.css — layout for the SOAP-AI editor page.
+ *
+ * Complements ai-assistant.css (which provides the dictation toolbar, buttons,
+ * transcript drawer, review banner, modal and chat-bubble styling). This file only
+ * adds the page shell: sticky header, two-column grid, SOAP field cards and the
+ * in-column chat panel (the native chat widget is fixed-position; here it is a column).
+ *
+ * @package   OpenEMR
+ * @subpackage AiAssistant
+ */
+
+body.oe-ai-editor-body {
+    margin: 0;
+    background: #f3f4f6;
+    color: #111827;
+    font-family: inherit;
+}
+
+.oe-ai-editor {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 14px;
+}
+
+/* ===================== Sticky header ===================== */
+.oe-ai-editor-header {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.oe-ai-editor-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.oe-ai-editor-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #ffffff;
+    font-size: 1.1rem;
+}
+
+.oe-ai-editor-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.oe-ai-editor-meta {
+    margin: 0;
+    font-size: 0.78rem;
+    color: #6b7280;
+}
+
+.oe-ai-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.oe-ai-editor-save-status {
+    font-size: 0.8rem;
+    color: #6b7280;
+    min-height: 1.1em;
+}
+.oe-ai-editor-save-status.is-error {
+    color: #b91c1c;
+    font-weight: 600;
+}
+.oe-ai-editor-save-status.is-ok {
+    color: #047857;
+    font-weight: 600;
+}
+
+/* ===================== Two-column grid ===================== */
+.oe-ai-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 370px;
+    gap: 16px;
+    align-items: start;
+    margin-top: 16px;
+}
+
+.oe-ai-editor-grid-no-chat {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.oe-ai-editor-main {
+    min-width: 0;
+}
+
+/* ===================== SOAP field cards ===================== */
+.oe-ai-note {
+    display: grid;
+    gap: 14px;
+}
+
+.oe-ai-field-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.oe-ai-field-card:focus-within {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.oe-ai-field-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #374151;
+}
+
+.oe-ai-field-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #e0e7ff;
+    color: #3730a3;
+    font-weight: 700;
+    font-size: 0.78rem;
+}
+
+.oe-ai-soap-textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 10px 12px;
+    font-size: 0.92rem;
+    font-family: inherit;
+    line-height: 1.5;
+    color: #111827;
+    background: #f9fafb;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    resize: vertical;
+}
+
+.oe-ai-soap-textarea:focus {
+    background: #ffffff;
+    border-color: #2563eb;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+/* ===================== Chat column ===================== */
+.oe-ai-editor-side {
+    position: sticky;
+    top: 84px;
+}
+
+.oe-ai-editor-chat {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 150px);
+    min-height: 380px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.oe-ai-editor-side-hint {
+    margin: 8px 4px 0;
+    font-size: 0.72rem;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+/* ===================== Responsive ===================== */
+@media (max-width: 992px) {
+    .oe-ai-editor-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .oe-ai-editor-side {
+        position: static;
+    }
+    .oe-ai-editor-chat {
+        height: 440px;
+    }
+}

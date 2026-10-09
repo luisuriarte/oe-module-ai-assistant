@@ -1,7 +1,15 @@
 <?php
 
 /**
- * SoapFormScriptListener — injects the AI Dictation JS into the SOAP form.
+ * SoapFormScriptListener — adds the "IA" launcher to the native SOAP form.
+ *
+ * The AI UI is no longer injected into the native SOAP form. Instead, this listener
+ * loads ai-launch.js, which adds a single "IA" button beside the native Save/Cancel
+ * group. That button opens the SOAP-AI editor (public/form.php), the modern editor
+ * that reads and writes the very same form_soap row (formdir='soap').
+ *
+ * Only the shared stylesheet and the launcher script are injected; the dictation
+ * toolbar and the chat panel now live entirely inside the editor page.
  *
  * How the SOAP form is served in OpenEMR 8.2.0 and 8.4.1
  * -------------------------------------------------------
@@ -38,7 +46,6 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Events\Core\ScriptFilterEvent;
-use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class SoapFormScriptListener
@@ -93,56 +100,16 @@ class SoapFormScriptListener
             return;
         }
 
-        // Check 3: Consent / configuration state, surfaced to the UI as data attributes.
-        //
-        // The script is STILL injected when the gate is closed. That is deliberate: the
-        // clinician needs to see why dictation is unavailable instead of finding the
-        // toolbar simply missing. The JS reads these attributes and disables the controls
-        // with an explanatory message.
-        //
-        // This is presentation only. The real enforcement is server-side in
-        // ConsentGate, called by DraftController::createDraft and
-        // TranscribeController::submit before any PHI is assembled or sent.
-        $consentGate = new ConsentGate($this->settings);
-        $granted     = $consentGate->isTransmissionAllowed();
-        $reason      = $granted ? '' : $consentGate->denialReason();
-        $message     = $granted ? '' : $consentGate->denialMessage();
-
-        $this->logger->debug(
-            '[AiAssistant:SoapListener] consent gate = ' . ($granted ? 'GRANTED' : 'BLOCKED(' . $reason . ')')
-        );
-
-        $wanted = [$this->buildAssetUrl('public/assets/js/ai-dictation.js')];
-
-        // Layer 2 is optional: the chat panel widget is only loaded when an admin
-        // enabled it in settings. The gate itself is still enforced server-side in
-        // ChatController, so a cached page or a hand-injected script cannot chat.
-        if ((string) $this->settings->get('chat_enabled', '0') === '1') {
-            $wanted[] = $this->buildAssetUrl('public/assets/js/ai-chat.js');
-            $this->logger->debug('[AiAssistant:SoapListener] chat panel enabled');
-        }
+        // Check 3: inject the launcher only. The SOAP-AI editor page owns the gate,
+        // dictation toolbar and chat panel; the native form stays untouched.
+        $assetUrl = $this->buildAssetUrl('public/assets/js/ai-launch.js');
 
         $scripts = $event->getScripts();
-        $changed = false;
-        foreach ($wanted as $assetUrl) {
-            if (!in_array($assetUrl, $scripts, true)) {
-                $scripts[] = $assetUrl;
-                $changed = true;
-                $this->logger->debug('[AiAssistant:SoapListener] Script injected | url=' . $assetUrl);
-            }
-        }
-        if ($changed) {
+        if (!in_array($assetUrl, $scripts, true)) {
+            $scripts[] = $assetUrl;
             $event->setScripts($scripts);
+            $this->logger->debug('[AiAssistant:SoapListener] launcher injected | url=' . $assetUrl);
         }
-
-        // The toolbar fetches the gate state from ?action=module_status on init.
-        //
-        // ScriptFilterEvent cannot carry data into the page: setScripts() runs every URL
-        // through ModulesApplication::filterSafeLocalModuleFiles(), which rejects anything
-        // that is not a local module file, so an inline <script> with a config object is
-        // not injectable. TemplatePageEvent::setContextArgument() exists, but neither
-        // load_form.php nor view_form.php reads context arguments when rendering.
-        $this->logger->debug('[AiAssistant:SoapListener] gate exposed via module_status');
     }
 
     /**
@@ -161,7 +128,8 @@ class SoapFormScriptListener
             return;
         }
 
-        // CSS is always injected (mirrors the JS gate removal above)
+        // CSS provides the launcher button styling (and, harmlessly, the editor styles
+        // the shared stylesheet already carries).
         $styleUrl = $this->buildAssetUrl('public/assets/css/ai-assistant.css');
         $styles   = $event->getStyles();
         if (!in_array($styleUrl, $styles, true)) {
