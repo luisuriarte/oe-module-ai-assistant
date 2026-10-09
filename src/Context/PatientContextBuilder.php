@@ -478,6 +478,11 @@ class PatientContextBuilder
         }
 
         $segments = explode('|', $raw);
+        // stash for smoking status
+        if ($listId === 'smoking_status') {
+            $GLOBALS['_tobacco_segments'] = $segments;
+            $GLOBALS['_tobacco_packs'] = trim((string) ($segments[4] ?? ''));
+        }
         $optionId = trim($segments[3] ?? '');
         if ($optionId === '' && count($segments) === 1) {
             $optionId = trim($segments[0]);
@@ -499,9 +504,10 @@ class PatientContextBuilder
 
         $readable = trim((string) $option['title']);
         if ($listId === 'smoking_status') {
-            $packs = trim((string) ($segments[4] ?? ''));
-            if ($packs !== '' && is_numeric($packs)) {
-                $readable .= ' — ' . $packs . ' paquetes/día';
+            $packsPerDay = $GLOBALS['_tobacco_packs'] ?? '';
+            $packCount = is_numeric($packsPerDay) ? $packsPerDay : '';
+            if ($packCount !== '') {
+                $readable .= ' — ' . $packCount . ' paquetes/día';
             }
         }
 
@@ -521,6 +527,49 @@ class PatientContextBuilder
             }
         }
         return true;
+    }
+
+    private function parseLifestylePipe(string $value): ?array
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '' || strpos($trimmed, '|') === false) {
+            return null;
+        }
+        $segments = explode('|', $trimmed);
+        // note|type|date|smoking_status_option_id|packs_per_day  (tobacco extended)
+        // note|type|date                                        (others)
+        $note = trim((string) ($segments[0] ?? ''));
+        $type = trim((string) ($segments[1] ?? ''));
+        $status = null;
+        $smokingStatusOptionId = trim((string) ($segments[3] ?? ''));
+        $packsPerDay = trim((string) ($segments[4] ?? ''));
+
+        if ($type !== '') {
+            $lower = strtolower($type);
+            if (str_starts_with($lower, 'current')) {
+                $status = 'current';
+            } elseif (str_starts_with($lower, 'quit')) {
+                $status = 'quit';
+            } elseif (str_starts_with($lower, 'never')) {
+                $status = 'never';
+            } elseif (str_starts_with($lower, 'not_applicable')) {
+                $status = 'not_applicable';
+            } elseif ($type === '0') {
+                $status = 'none';
+            }
+        }
+
+        $result = [
+            'note'        => $note,
+            'status'      => $status,
+            'segments'    => $segments,
+            'packs'       => is_numeric($packsPerDay) ? $packsPerDay : '',
+            'type_raw'    => $type,
+        ];
+        if ($smokingStatusOptionId !== '') {
+            $result['smoking_option_id'] = $smokingStatusOptionId;
+        }
+        return $result;
     }
 
     // -------------------------------------------------------------------------
@@ -905,10 +954,30 @@ class PatientContextBuilder
             $parts[] = "PA: {$v['bps']}/{$v['bpd']} mmHg";
         }
         if (!empty($v['pulse'])) {
-            $parts[] = "Pulso: {$v['pulse']} lpm";
+            $pulse = (string) $v['pulse'];
+            if (is_numeric($pulse)) {
+                $pulse = number_format((float) $pulse, 2, '.', '');
+                if (substr($pulse, -3) === '.00') {
+                    $pulse = substr($pulse, 0, -3);
+                } elseif (substr($pulse, -1) === '0' && strpos($pulse, '.') !== false) {
+                    $pulse = rtrim($pulse, '0');
+                    $pulse = rtrim($pulse, '.');
+                }
+            }
+            $parts[] = "Pulso: {$pulse} lpm";
         }
         if (!empty($v['temperature'])) {
-            $parts[] = "Temp: {$v['temperature']} °C";
+            $temp = (string) $v['temperature'];
+            if (is_numeric($temp)) {
+                $temp = number_format((float) $temp, 2, '.', '');
+                if (substr($temp, -3) === '.00') {
+                    $temp = substr($temp, 0, -3);
+                } elseif (substr($temp, -1) === '0' && strpos($temp, '.') !== false) {
+                    $temp = rtrim($temp, '0');
+                    $temp = rtrim($temp, '.');
+                }
+            }
+            $parts[] = "Temp: {$temp} °C";
         }
         if (!empty($v['respiration'])) {
             $parts[] = "FR: {$v['respiration']} rpm";
