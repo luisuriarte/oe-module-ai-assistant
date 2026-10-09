@@ -180,7 +180,7 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Latency:', 'Latencia:'),
 ('Spanish (Latin American)', 'el', 'Logged in audit table', 'Registrado en la tabla de auditoría'),
 
-('Spanish (Latin American)', 'el', 'Upload an audio file to test end-to-end Whisper transcription through the production validation pipeline, host-shared flock lock, and polling worker. Audited with patient_id = 0, encounter_id = 0 and flagged as test.', ('Spanish (Latin American)', 'el', 'Patient ID (PID):', 'ID del Paciente (PID):'),
+('Spanish (Latin American)', 'el', 'Patient ID (PID):', 'ID del Paciente (PID):'),
 ('Spanish (Latin American)', 'el', 'Compiled Patient Context:', 'Contexto Compilado del Paciente:'),
 
 -- Spanish translations added in batch
@@ -329,7 +329,23 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Unsupported audio format.', 'Formato de audio no soportado.'),
 ('Spanish (Latin American)', 'el', 'Upload error: ', 'Error al subir audio: '),
 ('Spanish (Latin American)', 'el', 'Uploading audio to the Whisper server...', 'Enviando audio al servidor Whisper...'),
-('Spanish (Latin American)', 'el', 'You do not have permission to use AI dictation.', 'No tenés permiso para usar el dictado por IA.')
+('Spanish (Latin American)', 'el', 'You do not have permission to use AI dictation.', 'No tenés permiso para usar el dictado por IA.'),
+-- SOAP-AI editor (M8): new UI/config strings
+('Spanish (Latin American)', 'el', 'SOAP with AI', 'SOAP con IA'),
+('Spanish (Latin American)', 'el', 'Back to native SOAP', 'Volver al SOAP nativo'),
+('Spanish (Latin American)', 'el', 'New note', 'Nota nueva'),
+('Spanish (Latin American)', 'el', 'Saving...', 'Guardando...'),
+('Spanish (Latin American)', 'el', 'Saved.', 'Guardada.'),
+('Spanish (Latin American)', 'el', 'Could not save the SOAP note. Please try again.', 'No se pudo guardar la nota SOAP. Intente de nuevo.'),
+('Spanish (Latin American)', 'el', 'This note still contains [VERIFY: ...] markers. Save anyway?', 'Esta nota aún contiene marcadores [VERIFY: ...]. ¿Guardar de todos modos?'),
+('Spanish (Latin American)', 'el', 'You have unsaved changes. Leave without saving?', 'Tiene cambios sin guardar. ¿Salir sin guardar?'),
+('Spanish (Latin American)', 'el', 'Clear', 'Borrar'),
+('Spanish (Latin American)', 'el', 'Answers come only from this patient''s chart and cite their source section.', 'Las respuestas provienen solo de la ficha de este paciente y citan su sección de origen.'),
+('Spanish (Latin American)', 'el', 'Subjective findings...', 'Hallazgos subjetivos...'),
+('Spanish (Latin American)', 'el', 'Objective findings...', 'Hallazgos objetivos...'),
+('Spanish (Latin American)', 'el', 'Assessment / diagnosis...', 'Evaluación / diagnóstico...'),
+('Spanish (Latin American)', 'el', 'Plan / follow-up...', 'Plan / seguimiento...'),
+('Spanish (Latin American)', 'el', 'The SOAP note could not be found.', 'No se pudo encontrar la nota SOAP.')
 );
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)

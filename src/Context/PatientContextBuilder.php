@@ -17,6 +17,10 @@
  *   6. Budget & Truncation: Manages token budget; oldest encounters truncated first.
  *   7. Date Formatting: Configurable absolute (YYYY-MM-DD) or relative ("hace X días").
  *   8. Automated Leak Checking: Scans generated context against real patient identifiers.
+ *   9. Native Services First: Patient data is read through OpenEMR's official readers
+ *      (PatientIssuesService, SocialHistoryService, ProcedureService, ClinicalNotesService)
+ *      when available; strict whitelist SQL remains the automatic fallback so output
+ *      never depends on a single access path.
  *
  * Compatibility: OpenEMR 8.2.0+ (PHP 8.2 compatible).
  *
@@ -34,10 +38,17 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
+use OpenEMR\Services\ClinicalNotesService;
+use OpenEMR\Services\PatientIssuesService;
+use OpenEMR\Services\ProcedureService;
+use OpenEMR\Services\SocialHistoryService;
 use OpenEMR\Services\VitalsService;
 
 class PatientContextBuilder
 {
+    /** Maximum number of clinical notes rendered in the context (newest first). */
+    private const MAX_CLINICAL_NOTES = 10;
+
     private SettingsManager $settings;
     private ?SystemLogger $logger;
     /** @var callable|null Callback for database queries: fn(string $sql, array $params): array */
@@ -105,6 +116,9 @@ class PatientContextBuilder
         // Section C: Labs (Optional, off by default)
         $labs = $includeLabs ? $this->extractRecentLabs($pid) : '';
 
+        // Section D: Clinical notes (native ClinicalNotesService, newest first)
+        $clinicalNotes = $this->extractClinicalNotes($pid);
+
         // 3. Assemble with Token Budget Enforcement (Truncating oldest SOAP first)
         return $this->assembleWithBudget(
             tokenBudget: $tokenBudget,
@@ -115,6 +129,7 @@ class PatientContextBuilder
             history: $history,
             vitals: $vitals,
             soapEncounters: $soapEncounters,
+            clinicalNotes: $clinicalNotes,
             labs: $labs
         );
     }
@@ -355,6 +370,95 @@ class PatientContextBuilder
     }
 
     // -------------------------------------------------------------------------
+    // Native Service Helpers (preferred readers with SQL fallback)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Normalizes an OpenEMR ProcessingResult into a plain indexed array.
+     * Returns [] when the result carries no data or lacks getData().
+     */
+    private function processingResultData(object $result): array
+    {
+        if (!method_exists($result, 'getData')) {
+            return [];
+        }
+        $data = $result->getData();
+        return is_array($data) ? array_values($data) : [];
+    }
+
+    /**
+     * Logs a native service failure so the SQL fallback path is transparent.
+     */
+    private function logServiceFailure(string $operation, \Throwable $e): void
+    {
+        if ($this->logger) {
+            $this->logger->error("[AiAssistant] PatientContextBuilder {$operation} failed, falling back to SQL: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * All active issues for the patient via PatientIssuesService::getActiveIssues().
+     *
+     * Returns:
+     *   - a non-empty list of issue records when the service yields data,
+     *   - null when the service is unavailable, throws, or reports no rows
+     *     (callers then fall back to whitelist SQL).
+     */
+    private function fetchActiveIssuesViaService(int $pid): ?array
+    {
+        if (!class_exists(PatientIssuesService::class)) {
+            return null;
+        }
+
+        try {
+            $service = new PatientIssuesService();
+            $data    = $this->processingResultData($service->getActiveIssues($pid));
+            return $data === [] ? null : $data;
+        } catch (\Throwable $e) {
+            $this->logServiceFailure('PatientIssuesService::getActiveIssues', $e);
+            return null;
+        }
+    }
+
+    /**
+     * Active issues of one issue type, or null when the service path is unusable.
+     */
+    private function activeIssuesOfType(int $pid, string $type): ?array
+    {
+        $issues = $this->fetchActiveIssuesViaService($pid);
+        if ($issues === null) {
+            return null;
+        }
+
+        return array_values(
+            array_filter($issues, static fn ($row): bool => ($row['type'] ?? '') === $type)
+        );
+    }
+
+    /**
+     * Latest social history record via SocialHistoryService::getHistoryDataForPatientPid().
+     * Returns null when the service is unavailable, throws, or returns no rows.
+     */
+    private function latestSocialHistoryRecordViaService(int $pid): ?array
+    {
+        if (!class_exists(SocialHistoryService::class)) {
+            return null;
+        }
+
+        try {
+            $records = (new SocialHistoryService())->getHistoryDataForPatientPid($pid);
+            if (!is_array($records) || $records === []) {
+                return null;
+            }
+            $record = $records[0] ?? null;
+            return is_array($record) && $record !== [] ? $record : null;
+        } catch (\Throwable $e) {
+            $this->logServiceFailure('SocialHistoryService::getHistoryDataForPatientPid', $e);
+            return null;
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Extraction Methods (Strict SQL Whitelist)
     // -------------------------------------------------------------------------
 
@@ -398,18 +502,24 @@ class PatientContextBuilder
 
     /**
      * Allergies: Universal source 'lists' with type = 'allergy' and activity = 1.
+     * Prefers the native PatientIssuesService::getActiveIssues() reader; falls back
+     * to a strict whitelist SQL query when the service is unavailable.
      */
     private function extractAllergies(int $pid): string
     {
-        $sql = "SELECT `title`, `comments`
-                FROM `lists`
-                WHERE `pid` = ?
-                  AND `type` = 'allergy'
-                  AND `activity` = 1
-                  AND (`enddate` IS NULL OR `enddate` = '' OR `enddate` = '0000-00-00' OR `enddate` > NOW())
-                ORDER BY `begdate` DESC";
+        $rows = $this->activeIssuesOfType($pid, 'allergy');
+        if ($rows === null) {
+            $sql = "SELECT `title`, `comments`, `severity`
+                    FROM `lists`
+                    WHERE `pid` = ?
+                      AND `type` = 'allergy'
+                      AND `activity` = 1
+                      AND (`enddate` IS NULL OR `enddate` = '' OR `enddate` = '0000-00-00' OR `enddate` > NOW())
+                    ORDER BY `begdate` DESC";
 
-        $rows = $this->query($sql, [$pid]);
+            $rows = $this->query($sql, [$pid]);
+        }
+
         if (empty($rows)) {
             return "### ALERGIAS CONOCIDAS\n- Sin alergias registradas activas.\n";
         }
@@ -435,18 +545,24 @@ class PatientContextBuilder
 
     /**
      * Active Problems: 'lists' where type = 'medical_problem' and activity = 1.
+     * Prefers the native PatientIssuesService::getActiveIssues() reader; falls back
+     * to a strict whitelist SQL query when the service is unavailable.
      */
     private function extractActiveProblems(int $pid): string
     {
-        $sql = "SELECT `title`, `begdate`, `comments`
-                FROM `lists`
-                WHERE `pid` = ?
-                  AND `type` = 'medical_problem'
-                  AND `activity` = 1
-                  AND (`enddate` IS NULL OR `enddate` = '' OR `enddate` = '0000-00-00' OR `enddate` > NOW())
-                ORDER BY `begdate` DESC";
+        $rows = $this->activeIssuesOfType($pid, 'medical_problem');
+        if ($rows === null) {
+            $sql = "SELECT `title`, `begdate`, `comments`
+                    FROM `lists`
+                    WHERE `pid` = ?
+                      AND `type` = 'medical_problem'
+                      AND `activity` = 1
+                      AND (`enddate` IS NULL OR `enddate` = '' OR `enddate` = '0000-00-00' OR `enddate` > NOW())
+                    ORDER BY `begdate` DESC";
 
-        $rows = $this->query($sql, [$pid]);
+            $rows = $this->query($sql, [$pid]);
+        }
+
         if (empty($rows)) {
             return "### PROBLEMAS ACTIVOS\n- Sin problemas médicos activos registrados.\n";
         }
@@ -472,7 +588,8 @@ class PatientContextBuilder
 
     /**
      * Active Medications: queries both prescriptions (active = 1) and lists (type = 'medication', activity = 1).
-     * Excludes discontinued or expired medications.
+     * Excludes discontinued or expired medications. Prescriptions remain whitelist SQL (no native reader exposes
+     * the legacy prescriptions table); the lists/medication side prefers PatientIssuesService::getActiveIssues().
      */
     private function extractActiveMedications(int $pid): string
     {
@@ -485,16 +602,20 @@ class PatientContextBuilder
 
         $rowsRx = $this->query($sqlRx, [$pid]);
 
-        // 2. Check lists table (type = 'medication' and activity = 1)
-        $sqlLists = "SELECT `title`, `begdate`, `comments`
-                     FROM `lists`
-                     WHERE `pid` = ?
-                       AND `type` = 'medication'
-                       AND `activity` = 1
-                       AND (`enddate` IS NULL OR `enddate` = '' OR `enddate` = '0000-00-00' OR `enddate` > NOW())
-                     ORDER BY `begdate` DESC";
+        // 2. Check lists table (type = 'medication' and activity = 1), preferring the
+        //    native service reader and falling back to whitelist SQL.
+        $rowsLists = $this->activeIssuesOfType($pid, 'medication');
+        if ($rowsLists === null) {
+            $sqlLists = "SELECT `title`, `begdate`, `comments`
+                         FROM `lists`
+                         WHERE `pid` = ?
+                           AND `type` = 'medication'
+                           AND `activity` = 1
+                           AND (`enddate` IS NULL OR `enddate` = '' OR `enddate` = '0000-00-00' OR `enddate` > NOW())
+                         ORDER BY `begdate` DESC";
 
-        $rowsLists = $this->query($sqlLists, [$pid]);
+            $rowsLists = $this->query($sqlLists, [$pid]);
+        }
 
         if (empty($rowsRx) && empty($rowsLists)) {
             return "### MEDICACIÓN ACTUAL\n- Sin medicación activa registrada.\n";
@@ -522,11 +643,16 @@ class PatientContextBuilder
         }
 
         foreach ($rowsLists as $r) {
-            $title    = $this->redactFreeText(trim((string) ($r['title'] ?? '')));
-            $date     = $this->formatDate((string) ($r['begdate'] ?? ''));
-            $comments = $this->redactFreeText(trim((string) ($r['comments'] ?? '')));
+            $title        = $this->redactFreeText(trim((string) ($r['title'] ?? '')));
+            $date         = $this->formatDate((string) ($r['begdate'] ?? ''));
+            $comments     = $this->redactFreeText(trim((string) ($r['comments'] ?? '')));
+            // Native service rows also expose structured dosage from lists_medication.
+            $instructions = trim((string) ($r['drug_dosage_instructions'] ?? ''));
 
             $line = "- {$title}";
+            if ($instructions !== '') {
+                $line .= " {$instructions}";
+            }
             if ($date !== '') {
                 $line .= " (Desde: {$date})";
             }
@@ -541,6 +667,12 @@ class PatientContextBuilder
 
     /**
      * History Data: Lifestyle, medical, surgical, family, social history.
+     *
+     * The native SocialHistoryService::getHistoryDataForPatientPid() reader supplies
+     * the four core lifestyle fields (tobacco, alcohol, exercise_patterns,
+     * recreational_drugs); the whitelist query below supplies the extended fields and
+     * acts as the fallback when the service is unavailable. The two rows are merged
+     * so no previously emitted field is lost.
      *
      * Column names come from the real history_data schema, verified identical across
      * OpenEMR 8.2.0, 8.4.1 and the current tree. There is no `exercise`, `diet`,
@@ -561,11 +693,23 @@ class PatientContextBuilder
                 LIMIT 1";
 
         $rows = $this->query($sql, [$pid]);
-        if (empty($rows)) {
+        $r = $rows[0] ?? [];
+
+        // Native service core lifestyle fields (merged over the SQL row so the
+        // service remains the preferred source for these four columns).
+        $serviceRow = $this->latestSocialHistoryRecordViaService($pid);
+        if (is_array($serviceRow) && $serviceRow !== []) {
+            foreach (['tobacco', 'alcohol', 'exercise_patterns', 'recreational_drugs'] as $column) {
+                if (array_key_exists($column, $serviceRow)) {
+                    $r[$column] = $serviceRow[$column];
+                }
+            }
+        }
+
+        if ($r === []) {
             return '';
         }
 
-        $r     = $rows[0];
         $items = [];
 
         // label => column. Only non-empty values are emitted.
@@ -790,9 +934,29 @@ class PatientContextBuilder
     /**
      * Recent Labs: strictly behind setting context_include_labs (off by default).
      * Whitelists procedure name, result value, units, range, status, and date.
+     *
+     * Prefers the native ProcedureService::search() reader (which returns orders
+     * with nested reports/results) and falls back to a strict whitelist SQL query
+     * when the service is unavailable or returns nothing.
      */
     private function extractRecentLabs(int $pid): string
     {
+        if (class_exists(ProcedureService::class)) {
+            try {
+                $service = new ProcedureService();
+                $result  = $service->search(['pid' => $pid]);
+                $data    = $this->processingResultData($result);
+                if ($data !== []) {
+                    $text = $this->formatProcedureResults($data);
+                    if ($text !== '') {
+                        return $text;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $this->logServiceFailure('ProcedureService::search', $e);
+            }
+        }
+
         // Real schema: procedure_result has NO procedure_order_id. The chain is
         // procedure_order -> procedure_report -> procedure_result, linked by
         // procedure_order_id then procedure_report_id. There is also no
@@ -854,6 +1018,167 @@ class PatientContextBuilder
         return $out;
     }
 
+    /**
+     * Renders nested ProcedureService result records into the labs section.
+     * Only whitelisted fields reach the prompt: analyte/text label, value, units,
+     * reference range, status, abnormal flag, and date.
+     */
+    private function formatProcedureResults(array $procedures): string
+    {
+        $entries = [];
+        foreach ($procedures as $proc) {
+            $orderLabel = trim((string) ($proc['procedure_name'] ?? ($proc['order_diagnosis'] ?? '')));
+            $orderDate  = (string) ($proc['date_ordered'] ?? '');
+
+            foreach (($proc['reports'] ?? []) as $report) {
+                $reportDate = (string) ($report['date'] ?? '');
+                $date       = $reportDate !== '' ? $reportDate : $orderDate;
+
+                foreach (($report['results'] ?? []) as $res) {
+                    $label = trim((string) ($res['text'] ?? ''));
+                    if ($label === '') {
+                        $label = $orderLabel;
+                    }
+                    if ($label === '') {
+                        $label = 'Estudio';
+                    }
+
+                    $entries[] = [
+                        'date'   => $date,
+                        'label'  => $label,
+                        'value'  => (string) ($res['result'] ?? ''),
+                        'units'  => (string) ($res['units'] ?? ''),
+                        'range'  => (string) ($res['range'] ?? ''),
+                        'status' => (string) ($res['status'] ?? ''),
+                        'abnormal' => (string) ($res['abnormal'] ?? ''),
+                    ];
+                }
+            }
+        }
+
+        if ($entries === []) {
+            return '';
+        }
+
+        // Newest first, capped at 15 to mirror the SQL fallback.
+        usort($entries, static fn ($a, $b) => strcmp($b['date'], $a['date']));
+        $entries = array_slice($entries, 0, 15);
+
+        $out = "### RESULTADOS DE LABORATORIO RECIENTES\n";
+        foreach ($entries as $e) {
+            $procName  = $this->redactFreeText($e['label']);
+            $resultVal = $this->redactFreeText($e['value']);
+
+            $line = "- {$procName}: {$resultVal}";
+            if ($e['units'] !== '') {
+                $line .= " {$e['units']}";
+            }
+            if ($e['range'] !== '') {
+                $line .= " (Ref: {$e['range']})";
+            }
+            if ($e['status'] !== '' && strtolower($e['status']) !== 'final') {
+                $line .= " [{$e['status']}]";
+            }
+            if ($e['abnormal'] !== '' && strtolower($e['abnormal']) === 'abnormal') {
+                $line .= ' [ALTERADO]';
+            }
+            if ($e['date'] !== '') {
+                $line .= " ({$this->formatDate($e['date'])})";
+            }
+            $out .= $line . "\n";
+        }
+
+        return $out;
+    }
+
+    /**
+     * Clinical notes: reads the patient's clinical notes through the native
+     * ClinicalNotesService::getClinicalNotesForPatient() reader. Additive section —
+     * newest notes first, capped by MAX_CLINICAL_NOTES. Only the note date, its type
+     * label and the (redacted) note text reach the prompt.
+     */
+    private function extractClinicalNotes(int $pid): string
+    {
+        if (class_exists(ClinicalNotesService::class)) {
+            try {
+                $service = new ClinicalNotesService();
+                $result  = $service->getClinicalNotesForPatient($pid);
+                $data    = $this->processingResultData($result);
+                if ($data !== []) {
+                    return $this->formatClinicalNotes($data, true);
+                }
+            } catch (\Throwable $e) {
+                $this->logServiceFailure('ClinicalNotesService::getClinicalNotesForPatient', $e);
+            }
+        }
+
+        // Fallback: same shape via strict whitelist SQL.
+        $sql = "SELECT fcn.`description`, fcn.`codetext`, fcn.`date`,
+                       fcn.`clinical_notes_category`, fcn.`clinical_notes_type`, fcn.`activity`
+                FROM `form_clinical_notes` fcn
+                JOIN `forms` f ON (f.`form_id` = fcn.`form_id` AND f.`formdir` = 'clinical_notes' AND f.`deleted` = 0)
+                WHERE fcn.`pid` = ?
+                ORDER BY fcn.`id` DESC
+                LIMIT 20";
+
+        $rows = $this->query($sql, [$pid]);
+        return $this->formatClinicalNotes($rows, false);
+    }
+
+    /**
+     * Renders clinical note records into the "NOTAS CLÍNICAS" section.
+     *
+     * @param array $notes       Note records (service shape or fallback SQL shape)
+     * @param bool  $fromService Whether the rows come from ClinicalNotesService
+     */
+    private function formatClinicalNotes(array $notes, bool $fromService): string
+    {
+        $entries = [];
+        foreach ($notes as $n) {
+            // Skip inactive/voided notes.
+            if (array_key_exists('activity', $n) && (int) ($n['activity'] ?? 1) === 0) {
+                continue;
+            }
+
+            $desc = $this->redactFreeText(trim((string) ($n['description'] ?? '')));
+            if ($desc === '') {
+                continue;
+            }
+
+            $label = trim((string) ($n['codetext'] ?? ''));
+            if ($label === '' && $fromService) {
+                $label = trim((string) ($n['category_title'] ?? ''));
+            }
+            if ($label === '') {
+                $label = 'Nota clínica';
+            }
+
+            $dateStr = trim((string) ($n['date'] ?? ''));
+            if ($dateStr === '' && $fromService) {
+                $dateStr = trim((string) ($n['encounter_date'] ?? ''));
+            }
+            $date = $this->formatDate($dateStr);
+
+            $line = '- ';
+            if ($date !== '') {
+                $line .= "[{$date}] ";
+            }
+            $line .= '[' . $this->redactFreeText($label) . '] ' . $desc;
+
+            $entries[] = ['sort' => $dateStr, 'line' => $line];
+        }
+
+        if ($entries === []) {
+            return '';
+        }
+
+        // Newest first, capped.
+        usort($entries, static fn ($a, $b) => strcmp($b['sort'], $a['sort']));
+        $entries = array_slice($entries, 0, self::MAX_CLINICAL_NOTES);
+
+        return "### NOTAS CLÍNICAS\n" . implode("\n", array_column($entries, 'line')) . "\n";
+    }
+
     // -------------------------------------------------------------------------
     // Token Budget Management & Assembly
     // -------------------------------------------------------------------------
@@ -863,7 +1188,7 @@ class PatientContextBuilder
      * Truncation Strategy:
      *   1. Preserves baseline clinical profile (demographics, allergies, problems, meds, history, vitals).
      *   2. Includes SOAP encounters newest first; truncates oldest encounters first.
-     *   3. Includes Labs if budget permits.
+     *   3. Includes clinical notes next (newest first), then Labs, if budget permits.
      */
     private function assembleWithBudget(
         int $tokenBudget,
@@ -874,6 +1199,7 @@ class PatientContextBuilder
         string $history,
         string $vitals,
         array $soapEncounters,
+        string $clinicalNotes,
         string $labs
     ): array {
         $baseText = "## CONTEXTO CLÍNICO DEL PACIENTE\n\n"
@@ -921,6 +1247,19 @@ class PatientContextBuilder
         $curText   = $baseText . $soapText;
         $curTokens = self::estimateTokens($curText);
 
+        // Clinical notes (if space permits)
+        $notesText = '';
+        if ($clinicalNotes !== '') {
+            $notesCost = self::estimateTokens($clinicalNotes);
+            if ($curTokens + $notesCost <= $tokenBudget) {
+                $notesText  = $clinicalNotes . "\n";
+                $curText   .= $notesText;
+                $curTokens  = self::estimateTokens($curText);
+            } else {
+                $truncated = true;
+            }
+        }
+
         // Labs (if enabled and space permits)
         $labsText = '';
         if ($labs !== '') {
@@ -938,6 +1277,7 @@ class PatientContextBuilder
         $sections = [
             'base_clinical_profile' => $baseTokens,
             'soap_encounters'       => self::estimateTokens($soapText),
+            'clinical_notes'        => self::estimateTokens($notesText),
             'labs'                  => self::estimateTokens($labsText),
             'total_estimated'       => $finalTokens,
         ];
