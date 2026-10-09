@@ -574,7 +574,7 @@ class PatientContextBuilder
     {
         $rows = $this->activeIssuesOfType($pid, 'allergy');
         if ($rows === null) {
-            $sql = "SELECT `title`, `comments`, `severity`
+            $sql = "SELECT `title`, `comments`, `severity_al`
                     FROM `lists`
                     WHERE `pid` = ?
                       AND `type` = 'allergy'
@@ -592,7 +592,12 @@ class PatientContextBuilder
         $out = "### ALERGIAS CONOCIDAS\n";
         foreach ($rows as $r) {
             $title    = $this->redactFreeText(trim((string) ($r['title'] ?? '')));
-            $severity = trim((string) ($r['severity'] ?? ''));
+            // lists.severity_al holds a severity_ccda list_option id, not free text;
+            // resolve it to its readable title when the native service is available.
+            $severity = $this->resolveCodedListValue(
+                trim((string) ($r['severity_al'] ?? '')),
+                'severity_ccda'
+            );
             $comments = $this->redactFreeText(trim((string) ($r['comments'] ?? '')));
 
             $line = "- {$title}";

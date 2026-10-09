@@ -250,6 +250,11 @@ class SettingsManager
             // Consent
             'consent_acknowledged'   => '0',
 
+            // Rate limits (0 = unlimited). Fixed 60-second window per user.
+            'rate_limit_draft_per_min'      => '6',
+            'rate_limit_chat_per_min'       => '10',
+            'rate_limit_transcribe_per_min' => '4',
+
             // Audit
             'audit_retention_days'   => '90',
             'debug_log_content'      => '0',  // Off by default; logs prompts/responses if on

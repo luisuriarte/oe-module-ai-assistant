@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../../globals.php';
 
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Controller\ChatController;
 use OpenEMR\Modules\AiAssistant\Controller\DraftController;
@@ -32,7 +33,7 @@ $session = SessionAccessor::resolve();
 // Fail closed: with no usable session there is no authenticated user.
 if ($session === null) {
     http_response_code(401);
-    echo json_encode(['error' => 'unauthorized']);
+    echo json_encode(['error' => xlt('Unauthorized'), 'error_type' => 'unauthorized']);
     exit;
 }
 $userId = SessionAccessor::currentUserId();
@@ -41,7 +42,7 @@ $userId = SessionAccessor::currentUserId();
 // ACLs, audit records or job ownership to. A username alone is not sufficient.
 if ($userId === null) {
     http_response_code(401);
-    exit(json_encode(['error' => xlt('Unauthorized')]));
+    exit(json_encode(['error' => xlt('Unauthorized'), 'error_type' => 'unauthorized']));
 }
 
 if (empty($_SESSION['authUserID'])) {
@@ -67,7 +68,7 @@ $routes = [
 
 if (!isset($routes[$action])) {
     http_response_code(404);
-    exit(json_encode(['error' => xlt('Not found')]));
+    exit(json_encode(['error' => xlt('Not found'), 'error_type' => 'not_found']));
 }
 
 [$class, $method, $aclSection, $aclObject] = $routes[$action];
@@ -78,9 +79,23 @@ if (!AclMain::aclCheckCore($aclSection, $aclObject)) {
         // admin permitted
     } else {
         http_response_code(403);
-        exit(json_encode(['error' => xlt('Access denied.')]));
+        exit(json_encode(['error' => xlt('Access denied.'), 'error_type' => 'access_denied']));
     }
 }
 
-$controller = new $class();
-$controller->$method();
+// The route hands full control to a controller method. Any Throwable that escapes
+// must be converted to a fixed JSON 500: the exception message can carry provider
+// or PHI content, so it is never sent to the client — only the class name is logged.
+try {
+    $controller = new $class();
+    $controller->$method();
+} catch (\Throwable $e) {
+    (new SystemLogger())->error('[AiAssistant] unhandled exception in action ' . $action . ': ' . get_class($e));
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
+    echo json_encode([
+        'error'      => xlt('An unexpected server error occurred.'),
+        'error_type' => 'internal_error',
+    ]);
+}

@@ -36,6 +36,7 @@ use OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder;
 use OpenEMR\Modules\AiAssistant\Draft\SoapDraftGenerator;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderException;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
+use OpenEMR\Modules\AiAssistant\Security\RateLimiter;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class DraftController
@@ -177,6 +178,44 @@ class DraftController
         if (mb_strlen($transcript) > 50000) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Transcript exceeds maximum allowable length (50,000 characters).')]);
+            return;
+        }
+
+        // 7b. Rate limit: draft generation is a paid provider round-trip, so it is
+        //     capped per authenticated user over a rolling 60-second window (M7).
+        //     Enforced after every input validation but before the session lock is
+        //     released, so a misbehaving client cannot stack provider calls.
+        $rateLimit  = (int) $this->settings->get('rate_limit_draft_per_min', 6);
+        $retryAfter = (new RateLimiter())->check($userId, 'soap_draft', $rateLimit);
+        if ($retryAfter !== null) {
+            $this->logger->warning(
+                '[AiAssistant] soap_draft rate limited: user=' . $userId . ' retry_after=' . $retryAfter
+            );
+
+            // Metadata-only audit, identical shape to a consent-gate denial.
+            $audit = new AuditLogger();
+            $audit->log(
+                userId: $userId,
+                patientId: $pid,
+                encounterId: $encounterId,
+                action: 'soap_draft',
+                provider: $this->settings->getActiveProvider(),
+                model: '',
+                status: 'blocked',
+                errorCode: 'rate_limited',
+                durationMs: 0,
+                tokensIn: 0,
+                tokensOut: 0
+            );
+
+            header('Retry-After: ' . $retryAfter);
+            http_response_code(429);
+            echo json_encode([
+                'ok'          => false,
+                'error'       => xlt('Too many requests. Please wait a few seconds and try again.'),
+                'error_type'  => 'rate_limited',
+                'retry_after' => $retryAfter,
+            ]);
             return;
         }
 

@@ -410,6 +410,36 @@ use OpenEMR\Core\Header;
             </div>
         </div>
 
+        <!-- ==================== RATE LIMITS (M7) ==================== -->
+        <div class="ai-settings-section card">
+            <div class="card-header"><?php echo xlt('Rate Limits'); ?></div>
+            <div class="card-body row">
+                <div class="col-md-4 form-group">
+                    <label for="rate_limit_draft_per_min"><?php echo xlt('Draft generation per minute (0 = unlimited)'); ?></label>
+                    <input type="number" class="form-control" id="rate_limit_draft_per_min"
+                           name="rate_limit_draft_per_min" min="0" max="1000"
+                           value="<?php echo attr($current['rate_limit_draft_per_min'] ?? '6'); ?>">
+                </div>
+                <div class="col-md-4 form-group">
+                    <label for="rate_limit_chat_per_min"><?php echo xlt('Chat questions per minute (0 = unlimited)'); ?></label>
+                    <input type="number" class="form-control" id="rate_limit_chat_per_min"
+                           name="rate_limit_chat_per_min" min="0" max="1000"
+                           value="<?php echo attr($current['rate_limit_chat_per_min'] ?? '10'); ?>">
+                </div>
+                <div class="col-md-4 form-group">
+                    <label for="rate_limit_transcribe_per_min"><?php echo xlt('Audio transcriptions per minute (0 = unlimited)'); ?></label>
+                    <input type="number" class="form-control" id="rate_limit_transcribe_per_min"
+                           name="rate_limit_transcribe_per_min" min="0" max="1000"
+                           value="<?php echo attr($current['rate_limit_transcribe_per_min'] ?? '4'); ?>">
+                </div>
+                <div class="col-12">
+                    <small class="form-text text-muted">
+                        <?php echo xlt('Per-user limits over a rolling 60-second window. Exceeding a limit returns HTTP 429 (metadata-only audit). Set 0 to disable a limit.'); ?>
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <!-- Save -->
         <div class="mb-4">
             <button type="submit" class="btn btn-primary"><?php echo xlt('Save Settings'); ?></button>

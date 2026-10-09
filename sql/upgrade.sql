@@ -24,3 +24,23 @@ ALTER TABLE `oe_ai_assistant_audit`
 
 ALTER TABLE `oe_ai_assistant_audit`
     MODIFY COLUMN `status` VARCHAR(32) NOT NULL DEFAULT 'ok';
+
+-- ============================================================================
+-- Rate limit table (M7): per-user fixed-window counters for provider-bound
+-- endpoints. CREATE TABLE IF NOT EXISTS so re-running is a harmless no-op, and
+-- pre-existing installs created before M7 pick the table up here.
+--
+-- `count` is a plain integer (never an ENUM), so new buckets never need an ALTER
+-- and an increment can never fail with "Data truncated". Expired windows are
+-- pruned opportunistically by RateLimiter on every check.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `oe_ai_assistant_rate_limits` (
+    `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`      INT             NOT NULL DEFAULT 0,
+    `bucket`       VARCHAR(16)     NOT NULL DEFAULT '',
+    `window_start` INT UNSIGNED    NOT NULL DEFAULT 0,
+    `count`        INT UNSIGNED    NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_user_bucket_window` (`user_id`, `bucket`, `window_start`),
+    KEY `idx_rl_window` (`window_start`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

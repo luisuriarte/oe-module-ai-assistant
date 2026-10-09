@@ -30,6 +30,7 @@ use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
+use OpenEMR\Modules\AiAssistant\Security\RateLimiter;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 use OpenEMR\Modules\AiAssistant\Transcription\TranscriptionClient;
 
@@ -55,8 +56,7 @@ class TranscribeController
     public function submit(): void
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['error' => 'method_not_allowed']);
+            $this->respondError(405, 'method_not_allowed');
             return;
         }
 
@@ -64,21 +64,18 @@ class TranscribeController
         $session = SessionAccessor::resolve();
             // Fail closed: without a usable session the CSRF token cannot be verified.
             if ($session === null) {
-                http_response_code(400);
-                echo json_encode(['error' => 'invalid_csrf']);
+                $this->respondError(400, 'invalid_csrf');
                 return;
             }
         $token   = $_POST['csrf_token'] ?? $_POST['csrf_token_form'] ?? '';
         if (!CsrfCompat::verify($token, $session)) {
-            http_response_code(400);
-            echo json_encode(['error' => 'invalid_csrf']);
+            $this->respondError(400, 'invalid_csrf');
             return;
         }
 
         $userId = SessionAccessor::currentUserId();
         if ($userId === null) {
-            http_response_code(401);
-            echo json_encode(['error' => 'unauthorized']);
+            $this->respondError(401, 'unauthorized');
             return;
         }
 
@@ -86,16 +83,14 @@ class TranscribeController
         $isTest = !empty($_POST['test_mode']);
         if ($isTest) {
             if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
-                http_response_code(403);
-                echo json_encode(['error' => 'access_denied']);
+                $this->respondError(403, 'access_denied');
                 return;
             }
             $pid       = 0;
             $encounter = 0;
         } else {
             if (!AclMain::aclCheckCore('ai_assistant', 'use')) {
-                http_response_code(403);
-                echo json_encode(['error' => 'access_denied']);
+                $this->respondError(403, 'access_denied');
                 return;
             }
 
@@ -148,10 +143,44 @@ class TranscribeController
             // Strict validation, restored. Both the patient and the encounter must
             // exist and the encounter must belong to this patient.
             if ($pid <= 0 || $encounter <= 0 || !$this->validateClinicalContext($pid, $encounter)) {
-                http_response_code(400);
-                echo json_encode(['error' => 'invalid_clinical_context']);
+                $this->respondError(400, 'invalid_clinical_context');
                 return;
             }
+        }
+
+        // 2b. Rate limit: transcription is a network and CPU/GPU demand on the Whisper
+        //     host, so it is capped per authenticated user over a rolling 60-second
+        //     window (M7). Enforced after authentication, ACL and consent but before
+        //     any file handling or upload work. Test mode counts too so the same
+        //     ceiling applies to the admin test bench.
+        $rateLimit  = (int) $this->settings->get('rate_limit_transcribe_per_min', 4);
+        $retryAfter = (new RateLimiter())->check($userId, 'transcribe', $rateLimit);
+        if ($retryAfter !== null) {
+            $this->logger->warning(
+                '[AiAssistant] transcribe_submit rate limited: user=' . $userId . ' retry_after=' . $retryAfter
+            );
+
+            // Metadata-only audit, identical shape to a consent-gate denial.
+            $this->audit->log(
+                $userId,
+                (int) ($_POST['pid'] ?? 0),
+                (int) ($_POST['encounter'] ?? 0),
+                'transcribe',
+                'whisper',
+                'whisper',
+                'blocked',
+                'rate_limited',
+                0
+            );
+
+            header('Retry-After: ' . $retryAfter);
+            http_response_code(429);
+            echo json_encode([
+                'error'       => xlt('Too many requests. Please wait a few seconds and try again.'),
+                'error_code'  => 'rate_limited',
+                'retry_after' => $retryAfter,
+            ]);
+            return;
         }
 
         // 3. Check Whisper server configuration
@@ -159,22 +188,19 @@ class TranscribeController
         try {
             $normalizedWhisperUrl = TranscriptionClient::validateAndNormalizeUrl($whisperUrl);
         } catch (\Throwable $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'invalid_whisper_configuration']);
+            $this->respondError(500, 'invalid_whisper_configuration');
             return;
         }
 
         // 4. File upload validation
         if (empty($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
-            http_response_code(400);
-            echo json_encode(['error' => 'no_audio_file']);
+            $this->respondError(400, 'no_audio_file');
             return;
         }
 
         $uploadedTmp = $_FILES['audio']['tmp_name'];
         if (!is_uploaded_file($uploadedTmp)) {
-            http_response_code(400);
-            echo json_encode(['error' => 'invalid_upload']);
+            $this->respondError(400, 'invalid_upload');
             return;
         }
 
@@ -188,15 +214,13 @@ class TranscribeController
         $maxBytes = max(10 * 1024 * 1024, (int) ($maxAudioSec * 45000));
         $fileSize = (int) filesize($uploadedTmp);
         if ($fileSize <= 0 || $fileSize > $maxBytes) {
-            http_response_code(413);
-            echo json_encode(['error' => 'file_too_large']);
+            $this->respondError(413, 'file_too_large');
             return;
         }
 
         // Real content inspection (MIME type + magic bytes)
         if (!$this->validateAudioContent($uploadedTmp)) {
-            http_response_code(415);
-            echo json_encode(['error' => 'unsupported_audio_format']);
+            $this->respondError(415, 'unsupported_audio_format');
             return;
         }
 
@@ -211,8 +235,8 @@ class TranscribeController
             // Return HTTP 429 with JSON busy response as required
             http_response_code(429);
             echo json_encode([
-                'error'   => 'busy',
-                'message' => xlt('The transcription engine is currently processing another audio. Please try again shortly.'),
+                'error'      => xlt('The transcription engine is currently processing another audio. Please try again shortly.'),
+                'error_code' => 'busy',
             ]);
             return;
         }
@@ -227,8 +251,7 @@ class TranscribeController
         if (!move_uploaded_file($uploadedTmp, $tempAudioPath)) {
             flock($lockFp, LOCK_UN);
             fclose($lockFp);
-            http_response_code(500);
-            echo json_encode(['error' => 'storage_error']);
+            $this->respondError(500, 'storage_error');
             return;
         }
         @chmod($tempAudioPath, 0600);
@@ -313,6 +336,46 @@ class TranscribeController
         }
     }
 
+    /**
+     * Uniform JSON error response for the transcribe endpoints (M7 contract):
+     * a translatable `error` for the user and a fixed `error_code` for the client
+     * and audit trail. The client maps `error_code` through describeTranscribeError()
+     * when it needs a fallback.
+     */
+    private function respondError(int $status, string $code): void
+    {
+        http_response_code($status);
+        echo json_encode([
+            'error'      => $this->transcribeMessage($code),
+            'error_code' => $code,
+        ]);
+    }
+
+    /**
+     * Maps a fixed transcribe code to its translatable message. Codes are the same
+     * values the client already knows from the module_status I18N payload.
+     */
+    private function transcribeMessage(string $code): string
+    {
+        return match ($code) {
+            'method_not_allowed'            => xlt('Method not allowed.'),
+            'invalid_csrf'                  => xlt('Invalid CSRF token. Reload the page.'),
+            'unauthorized'                  => xlt('Unauthenticated or expired session.'),
+            'access_denied'                 => xlt('You do not have permission to use AI dictation.'),
+            'invalid_clinical_context'      => xlt('The patient or encounter could not be validated.'),
+            'clinical_context_mismatch'     => xlt('The job does not belong to this patient or encounter.'),
+            'invalid_whisper_configuration' => xlt('The Whisper URL is invalid or unreachable.'),
+            'no_audio_file'                 => xlt('No audio file was received.'),
+            'invalid_upload'                => xlt('Invalid audio file.'),
+            'file_too_large'                => xlt('The audio exceeds the maximum allowed size.'),
+            'unsupported_audio_format'      => xlt('Unsupported audio format.'),
+            'storage_error'                 => xlt('Server storage error.'),
+            'missing_job_id'                => xlt('Invalid response: missing job_id'),
+            'job_not_found'                 => xlt('The transcription job expired or does not exist.'),
+            default                         => xlt('Unknown failure'),
+        };
+    }
+
     // -------------------------------------------------------------------------
     // 2. Status Endpoint: action=transcribe_status (GET)
     // -------------------------------------------------------------------------
@@ -322,8 +385,7 @@ class TranscribeController
         $session = SessionAccessor::resolve();
         // Fail closed: with no usable session there is no authenticated user.
         if ($session === null) {
-            http_response_code(401);
-            echo json_encode(['error' => 'unauthorized']);
+            $this->respondError(401, 'unauthorized');
             exit;
         }
         $userId = SessionAccessor::currentUserId();
@@ -332,8 +394,7 @@ class TranscribeController
         session_write_close();
 
         if ($userId === null) {
-            http_response_code(401);
-            echo json_encode(['error' => 'unauthorized']);
+            $this->respondError(401, 'unauthorized');
             return;
         }
 
@@ -342,8 +403,7 @@ class TranscribeController
         $encounter = (int) ($_GET['encounter'] ?? 0);
 
         if ($jobId === '') {
-            http_response_code(400);
-            echo json_encode(['error' => 'missing_job_id']);
+            $this->respondError(400, 'missing_job_id');
             return;
         }
 
@@ -352,15 +412,13 @@ class TranscribeController
         $jobMeta = $this->readJobMeta($jobDir, $jobId);
 
         if (empty($jobMeta) || time() > ($jobMeta['expires_at'] ?? 0)) {
-            http_response_code(404);
-            echo json_encode(['error' => 'job_not_found']);
+            $this->respondError(404, 'job_not_found');
             return;
         }
 
         // Security check: Job must belong to the authenticated user
         if ((int) $jobMeta['user_id'] !== $userId) {
-            http_response_code(403);
-            echo json_encode(['error' => 'access_denied']);
+            $this->respondError(403, 'access_denied');
             return;
         }
 
@@ -373,8 +431,7 @@ class TranscribeController
         // In clinical mode, verify binding to patient and encounter
         if (empty($jobMeta['is_test'])) {
             if ((int) $jobMeta['patient_id'] !== $pid || (int) $jobMeta['encounter_id'] !== $encounter) {
-                http_response_code(403);
-                echo json_encode(['error' => 'clinical_context_mismatch']);
+                $this->respondError(403, 'clinical_context_mismatch');
                 return;
             }
         }

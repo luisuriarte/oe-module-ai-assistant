@@ -202,6 +202,7 @@ class SettingsController
             'err_transcription_failed'      => xlt('Transcription failed.'),
             'err_worker_error'              => xlt('Error in the transcription process.'),
             'err_job_not_found'             => xlt('The transcription job expired or does not exist.'),
+            'err_rate_limited'              => xlt('Too many requests. Please wait a few seconds and try again.'),
             'err_unknown'                   => xlt('Unknown failure'),
         ];
     }
@@ -357,7 +358,7 @@ class SettingsController
 
         if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
             http_response_code(403);
-            echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied.'), 'error_type' => 'access_denied']);
             return;
         }
 
@@ -365,13 +366,13 @@ class SettingsController
         // Fail closed: without a usable session the CSRF token cannot be verified.
         if ($session === null) {
             http_response_code(400);
-            echo json_encode(['error' => 'invalid_csrf']);
+            echo json_encode(['error' => 'invalid_csrf', 'error_type' => 'invalid_csrf']);
             return;
         }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
         if (!CsrfCompat::verify((string) $token, $session)) {
             http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.'), 'error_type' => 'invalid_csrf']);
             return;
         }
 
@@ -387,10 +388,10 @@ class SettingsController
             echo json_encode($result);
         } catch (\InvalidArgumentException $e) {
             http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage(), 'error_type' => 'invalid_whisper_url']);
         } catch (\Throwable $e) {
             http_response_code(500);
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage(), 'error_type' => 'connection_failed']);
         }
     }
 
@@ -404,7 +405,7 @@ class SettingsController
 
         if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
             http_response_code(403);
-            echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied.'), 'error_type' => 'access_denied']);
             return;
         }
 
@@ -412,13 +413,13 @@ class SettingsController
         // Fail closed: without a usable session the CSRF token cannot be verified.
         if ($session === null) {
             http_response_code(400);
-            echo json_encode(['error' => 'invalid_csrf']);
+            echo json_encode(['error' => 'invalid_csrf', 'error_type' => 'invalid_csrf']);
             return;
         }
         $token   = $_POST['csrf_token_form'] ?? $_POST['csrf_token'] ?? '';
         if (!CsrfCompat::verify((string) $token, $session)) {
             http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid CSRF token.'), 'error_type' => 'invalid_csrf']);
             return;
         }
 
@@ -433,7 +434,7 @@ class SettingsController
             echo json_encode($result);
         } catch (\Throwable $e) {
             http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage(), 'error_type' => 'provider_rejected']);
         }
     }
 

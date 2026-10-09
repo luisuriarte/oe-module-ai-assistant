@@ -3,7 +3,7 @@
 Versión mínima de OpenEMR: **8.2.0**  
 PHP mínimo: **8.2.0**
 
-Última actualización: M5
+Última actualización: M7
 
 ## Compatibilidad de Clases / Métodos / Eventos
 
@@ -68,6 +68,9 @@ PHP mínimo: **8.2.0**
 | `SoapDraftGenerator` | `OpenEMR\Modules\AiAssistant\Draft` | ✅ | ✅ | Validación de esquema, reintento ante JSON inválido, anti-inyección y verosimilitud |
 | `DraftController` (`action=soap_draft`) | `OpenEMR\Modules\AiAssistant\Controller` | ✅ | ✅ | Sesión, CSRF, ACL use, acceso a paciente, cruce paciente/encuentro, timeout 60s, auditoría sin texto clínico |
 | Grabación con `MediaRecorder` | Web API | ✅ | ✅ | Soporte prioritario Safari `audio/mp4;codecs=mp4a.40.2` y fallback a `audio/webm;codecs=opus` |
+| `RateLimiter` (`Security\RateLimiter`) | `OpenEMR\Modules\AiAssistant\Security` | ✅ | ✅ | M7: ventanas fijas de 60 s por usuario para draft / chat / transcribe; contador atómico `INSERT … ON DUPLICATE KEY UPDATE`; nuevos buckets no requieren cambios de esquema |
+| `oe_ai_assistant_rate_limits` (tabla del módulo) | BD OpenEMR (propia del módulo) | ✅ | ✅ | Creada por `install.sql` / `upgrade.sql`; purgada oportunistamente por `RateLimiter` en cada chequeo (sin cron) |
+| Contrato JSON de errores M7 (`error` + `error_type`/`error_code`) | `OpenEMR\Modules\AiAssistant\Controller` + `public/index.php` | ✅ | ✅ | Los endpoints del router y de transcripción devuelven un `error` traducible más un código fijo; 500 JSON global sin filtrar la excepción ni el payload del proveedor |
 
 ## Estrategia de Detección por Capacidad
 

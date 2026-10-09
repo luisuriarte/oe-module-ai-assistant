@@ -4,7 +4,7 @@ Módulo personalizado de OpenEMR que ayuda a los médicos a redactar notas SOAP 
 
 **Versión mínima de OpenEMR:** 8.2.0  
 **PHP mínimo:** 8.2.0  
-**Hito actual:** M6 completo — M7 a continuación
+**Hito actual:** M7 completo (endurecimiento)
 
 ---
 
@@ -47,6 +47,7 @@ oe-module-ai-assistant/
 │   ├── Draft/SoapDraftGenerator    Transcripción + contexto → JSON S/O/A/P validado
 │   ├── Service/ChatService         Conversación con alcance por paciente
 │   ├── Security/ConsentGate        Puerta de consentimiento del lado servidor
+│   ├── Security/RateLimiter        Ventanas de 60 s por usuario para endpoints de pago
 │   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
 │   ├── Provider/Exception/         Códigos de error fijos; nunca filtra respuestas del proveedor
 │   ├── Controller/                 Endpoints protegidos: sesión + CSRF + ACL
@@ -63,8 +64,8 @@ oe-module-ai-assistant/
 │   ├── settings.php                Formulario de configuración (plantilla PHP)
 │   └── soap_ai.php                 Plantilla del editor SOAP-AI
 └── sql/
-    ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings
-    ├── upgrade.sql                 ALTER idempotentes; se ejecuta al instalar/habilitar/actualizar
+    ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings / _rate_limits
+    ├── upgrade.sql                 ALTER idempotentes + CREATE TABLE IF NOT EXISTS (límites de tasa)
     ├── uninstall.sql               DROP TABLE (eliminación limpia)
     └── lang_custom.sql             Traducciones al español (Latinoamérica)
 ```
@@ -93,7 +94,7 @@ oe-module-ai-assistant/
 2. En OpenEMR ir a **Administración → Módulos → Gestionar Módulos** → pestaña **Disponibles** → buscar _AI Assistant_ → hacer clic en **Instalar + Habilitar**.
 
 3. El Administrador de Módulos creará automáticamente:
-   - Las tablas `oe_ai_assistant_audit` y `oe_ai_assistant_settings`
+   - Las tablas `oe_ai_assistant_audit`, `oe_ai_assistant_settings` y `oe_ai_assistant_rate_limits`
    - Ejecutar `sql/upgrade.sql` (idempotente) para que las instalaciones existentes obtengan el esquema actual
    - La sección ACL `ai_assistant` con los objetos `use` y `admin`
 
@@ -142,6 +143,9 @@ oe-module-ai-assistant/
 | `provider_allow_private_hosts` | `0` | Permitir endpoints API en loopback/privados (modelos auto-alojados) |
 | `audit_retention_days` | `90` | Días de retención del registro de auditoría |
 | `debug_log_content` | `0` | **Apagado en producción.** Registra prompts y respuestas |
+| `rate_limit_draft_per_min` | `6` | Máximo de borradores por usuario cada 60 s (`0` = ilimitado) |
+| `rate_limit_chat_per_min` | `10` | Máximo de preguntas de chat por usuario cada 60 s (`0` = ilimitado) |
+| `rate_limit_transcribe_per_min` | `4` | Máximo de transcripciones por usuario cada 60 s (`0` = ilimitado) |
 
 ---
 
@@ -149,6 +153,7 @@ oe-module-ai-assistant/
 
 - Todo endpoint requiere una sesión válida de OpenEMR, token CSRF y verificación ACL.
 - **Gate de consentimiento:** no se transmiten datos del paciente a ningún proveedor de IA hasta que un administrador marca la casilla de consentimiento en la configuración. Se aplica del lado del servidor mediante `ConsentGate`, dentro de `DraftController::createDraft` y `TranscribeController::submit`, antes de armar cualquier contexto. Los rechazos quedan auditados con `status = 'blocked'`.
+- **Límites de tasa (M7):** la generación de borradores, las preguntas de chat y la transcripción están limitadas por usuario autenticado en una ventana móvil de 60 segundos (`rate_limit_*_per_min`, `0` = ilimitado). Al superar el límite se devuelve HTTP 429 + `Retry-After` antes de cualquier ida y vuelta al proveedor o a Whisper; la denegación queda auditada (`status = 'blocked'`, `error_code = 'rate_limited'`). La tabla de contadores se purga automáticamente, nunca se necesita un cambio de esquema para agregar un cubo, y una falla del almacén abre el paso (la solicitud continúa) y se registra en el log.
 - El audio se conserva como archivo temporal únicamente durante la transcripción y se elimina inmediatamente después.
 - Las claves API se cifran en reposo con `CryptoGen` de OpenEMR (AES-256); nunca se escriben en registros ni se devuelven al navegador.
 - El servidor whisper.cpp está vinculado a `localhost` y nunca se expone a la red.
@@ -181,7 +186,7 @@ oe-module-ai-assistant/
 | M4 | PatientContextBuilder, desidentificación | Completado |
 | M5 | UI Capa 1: dictado, editor de transcripción, relleno de campos SOAP | Completado |
 | M6 | Capa 2: panel de chat del paciente | Completado |
-| M7 | Endurecimiento: auditoría, límites de tasa, manejo de errores, docs finales | Pendiente |
+| M7 | Endurecimiento: auditoría, límites de tasa, manejo de errores, docs finales | Completado |
 
 ---
 
@@ -193,4 +198,4 @@ Ver [COMPATIBILITY_es.md](COMPATIBILITY_es.md) para la tabla completa de compati
 
 ## Licencia
 
-GNU General Public License 3 — ver [LICENSE](https://github.com/openemr/openemr/blob/master/LICENSE).
+GNU General Public License 3 — ver [LICENSE](LICENSE) (espejo del [texto oficial del repositorio de OpenEMR](https://github.com/openemr/openemr/blob/master/LICENSE)).

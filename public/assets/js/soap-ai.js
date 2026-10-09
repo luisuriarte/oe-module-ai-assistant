@@ -391,6 +391,13 @@
             })
             .then(function (resObj) {
                 if (resObj.status === 429) {
+                    var rateData = resObj.data || {};
+                    if (rateData.error_code === 'rate_limited') {
+                        // Rate limit, not a busy Whisper worker: do NOT auto-retry
+                        // (a retry loop would keep consuming the quota).
+                        statusText.textContent = rateData.error || t('err_rate_limited', 'Too many requests. Please wait a few seconds and try again.');
+                        return;
+                    }
                     statusText.textContent = t('busy_retry', 'Server busy. Retrying upload in 3 s...');
                     setTimeout(function () { uploadAudio(audioBlob); }, 3000);
                     return;
@@ -491,7 +498,8 @@
                 worker_exception: 'Internal server error during transcription.',
                 transcription_failed: 'Transcription failed.',
                 worker_error: 'Error in the transcription process.',
-                job_not_found: 'The transcription job expired or does not exist.'
+                job_not_found: 'The transcription job expired or does not exist.',
+                rate_limited: 'Too many requests. Please wait a few seconds and try again.'
             };
             if (code && I18N['err_' + code]) {
                 return I18N['err_' + code];

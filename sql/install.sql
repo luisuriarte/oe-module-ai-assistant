@@ -44,3 +44,18 @@ CREATE TABLE IF NOT EXISTS `oe_ai_assistant_settings` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_settings_key` (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rate limit counters (M7): per-user fixed-window counts for provider-bound
+-- endpoints. Same rationale as the audit table: `count` and `bucket` are plain
+-- scalar types (never ENUM), so new buckets never require a schema change and an
+-- increment can never fail with MySQL error 1265 "Data truncated".
+CREATE TABLE IF NOT EXISTS `oe_ai_assistant_rate_limits` (
+    `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`      INT             NOT NULL DEFAULT 0,
+    `bucket`       VARCHAR(16)     NOT NULL DEFAULT '',
+    `window_start` INT UNSIGNED    NOT NULL DEFAULT 0,
+    `count`        INT UNSIGNED    NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_user_bucket_window` (`user_id`, `bucket`, `window_start`),
+    KEY `idx_rl_window` (`window_start`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

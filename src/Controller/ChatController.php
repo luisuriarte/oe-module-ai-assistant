@@ -35,6 +35,7 @@ use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
+use OpenEMR\Modules\AiAssistant\Security\RateLimiter;
 use OpenEMR\Modules\AiAssistant\Service\ChatService;
 use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
@@ -184,6 +185,30 @@ class ChatController
         }
 
         $history = $this->decodeHistory((string) ($_POST['history'] ?? ''));
+
+        // 7b. Rate limit: each chat question is a provider round-trip, so it is capped
+        //     per authenticated user over a rolling 60-second window (M7). Enforced
+        //     after input validation and before the session lock is released.
+        $rateLimit  = (int) $this->settings->get('rate_limit_chat_per_min', 10);
+        $retryAfter = (new RateLimiter())->check($userId, 'chat', $rateLimit);
+        if ($retryAfter !== null) {
+            $this->logger->warning(
+                '[AiAssistant] chat rate limited: user=' . $userId . ' retry_after=' . $retryAfter
+            );
+
+            // Metadata-only audit, identical shape to a consent-gate denial.
+            $this->audit($userId, $pid, $encounter, 'blocked', 'rate_limited', 0, 0, 0, $this->settings->getActiveProvider(), '');
+
+            header('Retry-After: ' . $retryAfter);
+            http_response_code(429);
+            echo json_encode([
+                'ok'          => false,
+                'error'       => xlt('Too many requests. Please wait a few seconds and try again.'),
+                'error_type'  => 'rate_limited',
+                'retry_after' => $retryAfter,
+            ]);
+            return;
+        }
 
         // 8. Release the session lock before the provider round-trip, exactly as
         //    DraftController::createDraft does: the request is fully authenticated and

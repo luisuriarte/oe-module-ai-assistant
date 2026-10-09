@@ -4,7 +4,7 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 
 **Minimum OpenEMR version:** 8.2.0  
 **PHP minimum:** 8.2.0  
-**Current milestone:** M6 complete — M7 next
+**Current milestone:** M7 complete (hardening)
 
 ---
 
@@ -47,6 +47,7 @@ oe-module-ai-assistant/
 │   ├── Draft/SoapDraftGenerator    Transcript + context → validated S/O/A/P JSON
 │   ├── Service/ChatService         Patient-scoped conversation
 │   ├── Security/ConsentGate        Server-side consent gate for all outbound calls
+│   ├── Security/RateLimiter        Per-user 60s windows for provider-bound endpoints
 │   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
 │   ├── Provider/Exception/         Fixed error codes, never leaks provider bodies
 │   ├── Controller/                 Session + CSRF + ACL-protected endpoints
@@ -63,8 +64,8 @@ oe-module-ai-assistant/
 │   ├── settings.php                Admin settings form (PHP template)
 │   └── soap_ai.php                 SOAP-AI editor template
 └── sql/
-    ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings
-    ├── upgrade.sql                 Idempotent ALTERs, run on install / enable / upgrade
+    ├── install.sql                 CREATE TABLE oe_ai_assistant_audit / _settings / _rate_limits
+    ├── upgrade.sql                 Idempotent ALTERs + CREATE TABLE IF NOT EXISTS (rate limits)
     ├── uninstall.sql               DROP TABLE (clean removal)
     └── lang_custom.sql             Spanish (Latin American) translations
 ```
@@ -93,7 +94,7 @@ oe-module-ai-assistant/
 2. In OpenEMR go to **Admin → Modules → Manage Modules** → tab **Available** → find _AI Assistant_ → click **Install + Enable**.
 
 3. The Module Manager will:
-   - Create tables `oe_ai_assistant_audit` and `oe_ai_assistant_settings`
+   - Create tables `oe_ai_assistant_audit`, `oe_ai_assistant_settings` and `oe_ai_assistant_rate_limits`
    - Run `sql/upgrade.sql` (idempotent) so existing installs get the current schema
    - Register ACL section `ai_assistant` with objects `use` and `admin`
 
@@ -142,6 +143,9 @@ oe-module-ai-assistant/
 | `provider_allow_private_hosts` | `0` | Allow loopback/private API endpoints (self-hosted models) |
 | `audit_retention_days` | `90` | Days to keep audit log rows |
 | `debug_log_content` | `0` | **Off in production.** Logs prompts/responses |
+| `rate_limit_draft_per_min` | `6` | Max draft generations per user per 60 s (`0` = unlimited) |
+| `rate_limit_chat_per_min` | `10` | Max chat questions per user per 60 s (`0` = unlimited) |
+| `rate_limit_transcribe_per_min` | `4` | Max transcriptions per user per 60 s (`0` = unlimited) |
 
 ---
 
@@ -149,6 +153,7 @@ oe-module-ai-assistant/
 
 - Every endpoint requires a valid OpenEMR session, CSRF token, and ACL check.
 - **Consent gate:** patient data is never transmitted to an AI provider until an administrator ticks the disclosure acknowledgement in settings. Enforced server-side by `ConsentGate` inside `DraftController::createDraft` and `TranscribeController::submit`, before any context is assembled. Denials are audited with `status = 'blocked'`.
+- **Rate limits (M7):** draft generation, chat questions and transcription are capped per authenticated user over a rolling 60-second window (`rate_limit_*_per_min`, `0` = unlimited). Exceeding a limit returns HTTP 429 + `Retry-After` before any provider or Whisper round-trip; the denial is audited (`status = 'blocked'`, `error_code = 'rate_limited'`). The counter table is pruned automatically, no schema change is ever needed to add a bucket, and a store failure fails open (the request proceeds) while being logged.
 - Audio is held as a temporary file only for the duration of the transcription request, then deleted.
 - API keys are encrypted at rest using OpenEMR's `CryptoGen` (AES-256); never written to logs or returned to the browser.
 - The whisper.cpp server is bound to `localhost` and is never exposed to the network.
@@ -181,7 +186,7 @@ oe-module-ai-assistant/
 | M4 | PatientContextBuilder, de-identification | Done |
 | M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Done |
 | M6 | Layer 2: patient chat panel | Done |
-| M7 | Hardening: audit, rate limits, error handling, final docs | Pending |
+| M7 | Hardening: audit, rate limits, error handling, final docs | Done |
 
 ---
 
@@ -193,4 +198,4 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for the full API compatibility table be
 
 ## License
 
-GNU General Public License 3 — see [LICENSE](https://github.com/openemr/openemr/blob/master/LICENSE).
+GNU General Public License 3 — see [LICENSE](LICENSE) (mirrors [the official text in the OpenEMR repository](https://github.com/openemr/openemr/blob/master/LICENSE)).

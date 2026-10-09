@@ -345,7 +345,16 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Objective findings...', 'Hallazgos objetivos...'),
 ('Spanish (Latin American)', 'el', 'Assessment / diagnosis...', 'Evaluación / diagnóstico...'),
 ('Spanish (Latin American)', 'el', 'Plan / follow-up...', 'Plan / seguimiento...'),
-('Spanish (Latin American)', 'el', 'The SOAP note could not be found.', 'No se pudo encontrar la nota SOAP.')
+('Spanish (Latin American)', 'el', 'The SOAP note could not be found.', 'No se pudo encontrar la nota SOAP.'),
+-- M7 hardening: rate limits & unified error contract
+('Spanish (Latin American)', 'el', 'Rate Limits', 'Límites de Solicitudes'),
+('Spanish (Latin American)', 'el', 'Draft generation per minute (0 = unlimited)', 'Borradores por minuto (0 = ilimitado)'),
+('Spanish (Latin American)', 'el', 'Chat questions per minute (0 = unlimited)', 'Preguntas de chat por minuto (0 = ilimitado)'),
+('Spanish (Latin American)', 'el', 'Audio transcriptions per minute (0 = unlimited)', 'Transcripciones de audio por minuto (0 = ilimitado)'),
+('Spanish (Latin American)', 'el', 'Per-user limits over a rolling 60-second window. Exceeding a limit returns HTTP 429 (metadata-only audit). Set 0 to disable a limit.', 'Límites por usuario en una ventana móvil de 60 segundos. Al superar un límite se devuelve HTTP 429 (auditoría solo con metadatos). Use 0 para deshabilitar un límite.'),
+('Spanish (Latin American)', 'el', 'Too many requests. Please wait a few seconds and try again.', 'Demasiadas solicitudes. Esperá unos segundos e intentá de nuevo.'),
+('Spanish (Latin American)', 'el', 'An unexpected server error occurred.', 'Ocurrió un error inesperado del servidor.'),
+('Spanish (Latin American)', 'el', 'Method not allowed.', 'Método no permitido.')
 );
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)
