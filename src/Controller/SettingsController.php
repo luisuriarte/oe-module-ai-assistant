@@ -130,6 +130,8 @@ class SettingsController
             'title'                 => xlt('Clinical AI Dictation'),
             'record'                => xlt('Record'),
             'stop'                  => xlt('Stop'),
+            'pause'                 => xlt('Pause'),
+            'resume'                => xlt('Resume'),
             'discard'               => xlt('Discard'),
             'generate_soap'         => xlt('Generate SOAP Note'),
             'ready'                 => xlt('Ready to dictate'),
@@ -138,6 +140,8 @@ class SettingsController
 
             // Recording / upload status
             'recording'             => xlt('Recording consultation...'),
+            'recording_paused'      => xlt('Recording paused. Press Continue to resume.'),
+            'pause_not_supported'   => xlt('Pause is not supported in this browser. The recording continues without pausing.'),
             'audio_limit_reached'   => xlt('Audio limit reached (%d min). Processing...'),
             'audio_recorded'        => xlt('Audio recorded. Uploading...'),
             'recording_discarded'   => xlt('Recording discarded.'),

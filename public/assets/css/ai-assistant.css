@@ -112,6 +112,24 @@
     background-color: #374151;
 }
 
+.oe-ai-btn-pause {
+    background-color: #f59e0b;
+    color: #ffffff;
+    border-color: #d97706;
+}
+.oe-ai-btn-pause:hover:not(:disabled) {
+    background-color: #d97706;
+}
+
+.oe-ai-btn-resume {
+    background-color: #16a34a;
+    color: #ffffff;
+    border-color: #15803d;
+}
+.oe-ai-btn-resume:hover:not(:disabled) {
+    background-color: #15803d;
+}
+
 .oe-ai-btn-discard {
     background-color: #f3f4f6;
     color: #4b5563;

@@ -354,7 +354,12 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Per-user limits over a rolling 60-second window. Exceeding a limit returns HTTP 429 (metadata-only audit). Set 0 to disable a limit.', 'Límites por usuario en una ventana móvil de 60 segundos. Al superar un límite se devuelve HTTP 429 (auditoría solo con metadatos). Use 0 para deshabilitar un límite.'),
 ('Spanish (Latin American)', 'el', 'Too many requests. Please wait a few seconds and try again.', 'Demasiadas solicitudes. Esperá unos segundos e intentá de nuevo.'),
 ('Spanish (Latin American)', 'el', 'An unexpected server error occurred.', 'Ocurrió un error inesperado del servidor.'),
-('Spanish (Latin American)', 'el', 'Method not allowed.', 'Método no permitido.')
+('Spanish (Latin American)', 'el', 'Method not allowed.', 'Método no permitido.'),
+-- Pause/resume dictation: new toolbar/status strings
+('Spanish (Latin American)', 'el', 'Pause', 'Pausar'),
+('Spanish (Latin American)', 'el', 'Resume', 'Continuar'),
+('Spanish (Latin American)', 'el', 'Recording paused. Press Continue to resume.', 'Grabación en pausa. Presioná Continuar para reanudar.'),
+('Spanish (Latin American)', 'el', 'Pause is not supported in this browser. The recording continues without pausing.', 'Pausar no está disponible en este navegador. La grabación continúa sin pausa.')
 );
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)

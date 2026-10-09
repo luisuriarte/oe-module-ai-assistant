@@ -101,6 +101,14 @@ $config = [
                             <i class="fa fa-stop" aria-hidden="true"></i>
                             <span data-i18n="stop"><?php echo xlt('Stop'); ?></span>
                         </button>
+                        <button type="button" class="oe-ai-btn oe-ai-btn-pause" id="oe-ai-btn-pause" style="display: none;">
+                            <i class="fa fa-pause" aria-hidden="true"></i>
+                            <span data-i18n="pause"><?php echo xlt('Pause'); ?></span>
+                        </button>
+                        <button type="button" class="oe-ai-btn oe-ai-btn-resume" id="oe-ai-btn-resume" style="display: none;">
+                            <i class="fa fa-play" aria-hidden="true"></i>
+                            <span data-i18n="resume"><?php echo xlt('Resume'); ?></span>
+                        </button>
                         <button type="button" class="oe-ai-btn oe-ai-btn-discard" id="oe-ai-btn-discard" style="display: none;">
                             <i class="fa fa-trash" aria-hidden="true"></i>
                             <span data-i18n="discard"><?php echo xlt('Discard'); ?></span>

@@ -210,6 +210,8 @@
         var toolbar = document.getElementById('oe-ai-dictation-toolbar');
         var btnRecord = document.getElementById('oe-ai-btn-record');
         var btnStop = document.getElementById('oe-ai-btn-stop');
+        var btnPause = document.getElementById('oe-ai-btn-pause');
+        var btnResume = document.getElementById('oe-ai-btn-resume');
         var btnDiscard = document.getElementById('oe-ai-btn-discard');
         var btnGenerate = document.getElementById('oe-ai-btn-generate');
         var timerDisplay = document.getElementById('oe-ai-timer');
@@ -227,6 +229,10 @@
         var mediaStream = null;
         var recordedChunks = [];
         var timerInterval = null;
+        var isPaused = false;                // recording timer frozen while paused
+        var pauseSupported = true;           // set false when a browser rejects pause()
+        var pauseUnsupportedNotified = false;
+        var pauseVerifyTimer = null;         // Safari may silently ignore pause(); verify state
         var elapsedSeconds = 0;
         var activePollingJobId = null;
         var pollingTimer = null;
@@ -239,6 +245,11 @@
         }
 
         function updateTimer() {
+            if (isPaused) {
+                // Paused seconds must not consume the recording budget.
+                timerDisplay.textContent = formatSeconds(elapsedSeconds) + ' / ' + formatSeconds(maxAudioDurationSec);
+                return;
+            }
             elapsedSeconds++;
             timerDisplay.textContent = formatSeconds(elapsedSeconds) + ' / ' + formatSeconds(maxAudioDurationSec);
             if (elapsedSeconds >= maxAudioDurationSec) {
@@ -307,18 +318,34 @@
                 mediaRecorder.onstop = function () {
                     releaseMicrophone();
                     clearInterval(timerInterval);
+                    clearTimeout(pauseVerifyTimer);
+                    isPaused = false;
                     if (recordedChunks.length > 0) {
                         var blobType = mediaRecorder.mimeType || 'audio/webm';
                         uploadAudio(new Blob(recordedChunks, { type: blobType }));
                     }
                 };
+                mediaRecorder.onpause = function () {
+                    // The browser actually paused: cancel the Safari fallback timer.
+                    clearTimeout(pauseVerifyTimer);
+                    setPausedUi(true);
+                };
+                mediaRecorder.onresume = function () {
+                    setPausedUi(false);
+                };
 
                 mediaRecorder.start(250);
+
+                // Pause/resume state resets on every recording session.
+                isPaused = false;
+                clearTimeout(pauseVerifyTimer);
 
                 toolbar.classList.add('recording');
                 btnRecord.style.display = 'none';
                 btnStop.style.display = 'inline-flex';
                 btnDiscard.style.display = 'inline-flex';
+                btnPause.style.display = pauseSupported ? 'inline-flex' : 'none';
+                btnResume.style.display = 'none';
                 timerDisplay.style.display = 'inline-block';
                 timerDisplay.textContent = '00:00 / ' + formatSeconds(maxAudioDurationSec);
                 statusText.innerHTML = '<span class="oe-ai-pulsing-dot mr-1"></span> ' + t('recording', 'Recording consultation...');
@@ -334,12 +361,83 @@
             });
         }
 
+        function pauseRecording() {
+            if (pauseSupported !== true || !mediaRecorder || mediaRecorder.state !== 'recording') {
+                return;
+            }
+            try {
+                mediaRecorder.pause();
+            } catch (e) {
+                markPauseUnsupported();
+                return;
+            }
+            clearTimeout(pauseVerifyTimer);
+            if (mediaRecorder.state === 'paused') {
+                // Conforming browsers flip the state synchronously; the 'pause' event
+                // follows right after and re-confirms the UI (idempotent).
+                setPausedUi(true);
+                return;
+            }
+            // The browser accepted pause() without pausing (some Safari builds).
+            // Give the queued 'pause' event a moment, then degrade gracefully.
+            pauseVerifyTimer = setTimeout(function () {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    markPauseUnsupported();
+                }
+            }, 300);
+            setPausedUi(true);
+        }
+
+        function resumeRecording() {
+            if (!mediaRecorder || mediaRecorder.state !== 'paused') {
+                return;
+            }
+            try {
+                mediaRecorder.resume();
+            } catch (e) {
+                // keep the paused state, the UI already reflects it
+                return;
+            }
+            setPausedUi(false);
+        }
+
+        function setPausedUi(paused) {
+            if (pauseSupported !== true) {
+                return;
+            }
+            isPaused = paused;
+            btnPause.style.display = paused ? 'none' : 'inline-flex';
+            btnResume.style.display = paused ? 'inline-flex' : 'none';
+            if (paused) {
+                statusText.innerHTML = t('recording_paused', 'Recording paused. Press Continue to resume.');
+            } else {
+                statusText.innerHTML = '<span class="oe-ai-pulsing-dot mr-1"></span> ' + t('recording', 'Recording consultation...');
+            }
+        }
+
+        function markPauseUnsupported() {
+            pauseSupported = false;
+            isPaused = false;
+            clearTimeout(pauseVerifyTimer);
+            btnPause.style.display = 'none';
+            btnResume.style.display = 'none';
+            statusText.innerHTML = '<span class="oe-ai-pulsing-dot mr-1"></span> ' + t('recording', 'Recording consultation...');
+            if (!pauseUnsupportedNotified) {
+                pauseUnsupportedNotified = true;
+                window.alert(t('pause_not_supported', 'Pause is not supported in this browser. The recording continues without pausing.'));
+            }
+        }
+
         function stopRecording() {
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.stop();
             }
             toolbar.classList.remove('recording');
+            clearTimeout(pauseVerifyTimer);
+            isPaused = false;
             btnStop.style.display = 'none';
+            btnPause.style.display = 'none';
+            btnResume.style.display = 'none';
             btnDiscard.style.display = 'none';
             timerDisplay.style.display = 'none';
             btnRecord.style.display = 'inline-flex';
@@ -354,9 +452,13 @@
             }
             releaseMicrophone();
             clearInterval(timerInterval);
+            clearTimeout(pauseVerifyTimer);
+            isPaused = false;
             recordedChunks = [];
             toolbar.classList.remove('recording');
             btnStop.style.display = 'none';
+            btnPause.style.display = 'none';
+            btnResume.style.display = 'none';
             btnDiscard.style.display = 'none';
             timerDisplay.style.display = 'none';
             btnRecord.style.display = 'inline-flex';
@@ -898,6 +1000,8 @@
 
         btnRecord.addEventListener('click', startRecording);
         btnStop.addEventListener('click', stopRecording);
+        if (btnPause) { btnPause.addEventListener('click', pauseRecording); }
+        if (btnResume) { btnResume.addEventListener('click', resumeRecording); }
         btnDiscard.addEventListener('click', discardRecording);
         btnGenerate.addEventListener('click', generateSoapDraft);
 
