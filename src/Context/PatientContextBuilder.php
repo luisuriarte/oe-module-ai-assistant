@@ -39,6 +39,7 @@ use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 use OpenEMR\Services\ClinicalNotesService;
+use OpenEMR\Services\ListService;
 use OpenEMR\Services\PatientIssuesService;
 use OpenEMR\Services\ProcedureService;
 use OpenEMR\Services\SocialHistoryService;
@@ -458,6 +459,70 @@ class PatientContextBuilder
         }
     }
 
+    /**
+     * Resolves a coded history_data value to its readable list_options title via
+     * ListService. Values that cannot be resolved (free text, missing option) are
+     * returned unchanged.
+     *
+     * OpenEMR stores the smoking status in history_data.tobacco as a pipe-delimited
+     * string whose status option_id and pack count sit at indexes
+     * SmokingStatusType::COLUMN_TOBACCO_INDEX_SMOKING_STATUS (3) and
+     * COLUMN_TOBACCO_INDEX_SMOKING_PACK_COUNT (4) — the same convention
+     * SocialHistoryService follows. Bare option ids (e.g. "3") are also handled.
+     */
+    private function resolveCodedListValue(string $raw, string $listId): string
+    {
+        $raw = trim($raw);
+        if ($raw === '' || !class_exists(ListService::class)) {
+            return $raw;
+        }
+
+        $segments = explode('|', $raw);
+        $optionId = trim($segments[3] ?? '');
+        if ($optionId === '' && count($segments) === 1) {
+            $optionId = trim($segments[0]);
+        }
+        if ($optionId === '') {
+            return $raw;
+        }
+
+        try {
+            $option = (new ListService())->getListOption($listId, $optionId);
+        } catch (\Throwable $e) {
+            $this->logServiceFailure('ListService::getListOption(' . $listId . ')', $e);
+            return $raw;
+        }
+
+        if (empty($option) || empty($option['title'])) {
+            return $raw;
+        }
+
+        $readable = trim((string) $option['title']);
+        if ($listId === 'smoking_status') {
+            $packs = trim((string) ($segments[4] ?? ''));
+            if ($packs !== '' && is_numeric($packs)) {
+                $readable .= ' — ' . $packs . ' paquetes/día';
+            }
+        }
+
+        return $readable;
+    }
+
+    /**
+     * True when every pipe-delimited segment is either empty or numeric — i.e. the
+     * value looks like raw option-id storage ("0|0|0|0|") rather than free text.
+     */
+    private function isNumericPipeJunk(string $value): bool
+    {
+        foreach (explode('|', $value) as $part) {
+            $part = trim($part);
+            if ($part !== '' && !is_numeric($part)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // -------------------------------------------------------------------------
     // Extraction Methods (Strict SQL Whitelist)
     // -------------------------------------------------------------------------
@@ -674,6 +739,12 @@ class PatientContextBuilder
      * acts as the fallback when the service is unavailable. The two rows are merged
      * so no previously emitted field is lost.
      *
+     * Visibility: coded values are resolved to readable list_options titles via
+     * ListService before reaching the prompt. Per the official HIS layout and
+     * SocialHistoryService, the only coded column is `tobacco` (pipe-delimited
+     * `status|pack_count`, list 'smoking_status'); the remaining lifestyle columns
+     * are free text and pass through unchanged.
+     *
      * Column names come from the real history_data schema, verified identical across
      * OpenEMR 8.2.0, 8.4.1 and the current tree. There is no `exercise`, `diet`,
      * `medical_history`, `surgical_history`, `family_history` or `social_history`
@@ -730,11 +801,30 @@ class PatientContextBuilder
             'Antecedentes cónyuge'    => 'history_spouse',
         ];
 
+        // history_data columns that store a list_options option id instead of free
+        // text. Only smoking_status is coded per the official HIS layout.
+        $codedHistoryLists = [
+            'tobacco' => 'smoking_status',
+        ];
+
         foreach ($map as $label => $column) {
             if (empty($r[$column])) {
                 continue;
             }
-            $items[] = $label . ': ' . $this->redactFreeText(trim((string) $r[$column]));
+            $value = trim((string) $r[$column]);
+            if (isset($codedHistoryLists[$column])) {
+                $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
+                if ($resolved === $value && $this->isNumericPipeJunk($value)) {
+                    // Raw coded storage (e.g. "0|0|0|0|") with no resolvable title —
+                    // never leak option ids into the prompt.
+                    continue;
+                }
+                $value = $resolved;
+            }
+            if ($value === '') {
+                continue;
+            }
+            $items[] = $label . ': ' . $this->redactFreeText($value);
         }
 
         // Surgical history: the history_data surgical checkboxes (appendectomy, hernia
