@@ -218,6 +218,61 @@
         var statusText = document.getElementById('oe-ai-status');
         var transcriptPanel = document.getElementById('oe-ai-transcript-panel');
         var transcriptText = document.getElementById('oe-ai-transcript-text');
+        var micSelect = document.getElementById('oe-ai-mic-select');
+
+        // Shared with the settings page: the chosen input device is remembered per browser.
+        var MIC_DEVICE_KEY = 'oe_ai_mic_device_id';
+
+        // Populates the toolbar device picker. Device labels are only exposed by the
+        // browser after microphone permission has been granted, so this is called on
+        // init and again after a successful getUserMedia().
+        function refreshMicDeviceList() {
+            if (!micSelect || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                return;
+            }
+            navigator.mediaDevices.enumerateDevices().then(function (devices) {
+                var inputs = devices.filter(function (d) { return d.kind === 'audioinput'; });
+                var saved = '';
+                try {
+                    saved = window.localStorage.getItem(MIC_DEVICE_KEY) || '';
+                } catch (e) {
+                    saved = '';
+                }
+
+                micSelect.innerHTML = '';
+
+                var defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = t('mic_default', 'System default');
+                micSelect.appendChild(defaultOption);
+
+                inputs.forEach(function (d, i) {
+                    var opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || (t('mic_device_label', 'Microphone') + ' ' + (i + 1));
+                    micSelect.appendChild(opt);
+                });
+
+                // Preselect the saved device when it is still available.
+                micSelect.value = saved;
+                if (micSelect.value !== saved) {
+                    micSelect.value = '';
+                }
+            }).catch(function () {
+                // enumerateDevices can reject before permission is granted; retry later.
+            });
+        }
+
+        function selectedMicDeviceId() {
+            if (micSelect) {
+                return micSelect.value;
+            }
+            try {
+                return window.localStorage.getItem(MIC_DEVICE_KEY) || '';
+            } catch (e) {
+                return '';
+            }
+        }
 
         function refreshTranscriptPlaceholder() {
             if (transcriptText && I18N['transcript_placeholder']) {
@@ -300,8 +355,22 @@
             recordedChunks = [];
             elapsedSeconds = 0;
 
-            navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+            // Prefer the microphone chosen in the dictation toolbar (persisted per browser).
+            var chosenMicId = selectedMicDeviceId();
+            var micConstraints = chosenMicId
+                ? { audio: { deviceId: { exact: chosenMicId } } }
+                : { audio: true };
+
+            navigator.mediaDevices.getUserMedia(micConstraints).catch(function (err) {
+                // The chosen device may no longer be connected: fall back to the system default.
+                if (chosenMicId && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) {
+                    return navigator.mediaDevices.getUserMedia({ audio: true });
+                }
+                throw err;
+            }).then(function (stream) {
                 mediaStream = stream;
+                // Device labels become readable once permission is granted.
+                refreshMicDeviceList();
                 var mimeType = getSupportedMimeType();
                 var options = mimeType ? { mimeType: mimeType } : {};
                 try {
@@ -981,6 +1050,8 @@
                     I18N = data.i18n;
                     applyI18n(toolbar, I18N);
                     refreshTranscriptPlaceholder();
+                    // Repopulate so the "System default" option uses the active language.
+                    refreshMicDeviceList();
                 }
                 if (!consentAllowed) {
                     btnRecord.disabled = true;
@@ -1004,6 +1075,21 @@
         if (btnResume) { btnResume.addEventListener('click', resumeRecording); }
         btnDiscard.addEventListener('click', discardRecording);
         btnGenerate.addEventListener('click', generateSoapDraft);
+
+        if (micSelect) {
+            micSelect.addEventListener('change', function () {
+                try {
+                    if (micSelect.value) {
+                        window.localStorage.setItem(MIC_DEVICE_KEY, micSelect.value);
+                    } else {
+                        window.localStorage.removeItem(MIC_DEVICE_KEY);
+                    }
+                } catch (e) {
+                    // localStorage may be unavailable (private mode); the choice still applies to this session.
+                }
+            });
+            refreshMicDeviceList();
+        }
 
         loadStatus();
     }

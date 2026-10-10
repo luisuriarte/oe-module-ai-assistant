@@ -133,6 +133,49 @@ use OpenEMR\Core\Header;
             </div>
         </div>
 
+        <!-- ==================== MICROPHONE TEST ==================== -->
+        <div class="ai-settings-section card" id="mic-test-card">
+            <div class="card-header"><?php echo xlt('Microphone Test'); ?></div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    <?php echo xlt('Verifies that this browser captures your voice before you dictate. The audio is analyzed locally in the browser and is never uploaded from this panel.'); ?>
+                </p>
+                <div class="row align-items-end mb-2">
+                    <div class="col-md-6 form-group mb-md-0">
+                        <label for="mic_device_select"><?php echo xlt('Input device'); ?></label>
+                        <div class="input-group">
+                            <select class="form-control" id="mic_device_select"></select>
+                            <div class="input-group-append">
+                                <button type="button" class="btn btn-outline-secondary" id="btn-mic-refresh">
+                                    <?php echo xlt('Refresh'); ?>
+                                </button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted" id="mic-device-hint">
+                            <?php echo xlt('The selected device is remembered for AI dictation in this browser.'); ?>
+                        </small>
+                    </div>
+                    <div class="col-md-6 form-group mb-md-0">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="btn-mic-test-start">
+                            <?php echo xlt('Start Microphone Test'); ?>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="btn-mic-test-stop">
+                            <?php echo xlt('Stop Test'); ?>
+                        </button>
+                        <span id="mic-test-status" class="ml-2 font-weight-bold"></span>
+                    </div>
+                </div>
+                <div class="form-group mb-0">
+                    <label for="mic-level-bar"><?php echo xlt('Live level'); ?></label>
+                    <div class="progress" style="height: 1.25rem;">
+                        <div class="progress-bar bg-secondary" id="mic-level-bar" role="progressbar"
+                             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                    </div>
+                    <small class="form-text text-muted" id="mic-device-label"></small>
+                </div>
+            </div>
+        </div>
+
         <!-- ==================== AI PROVIDER ==================== -->
         <div class="ai-settings-section card">
             <div class="card-header"><?php echo xlt('AI Provider'); ?></div>
@@ -509,6 +552,9 @@ use OpenEMR\Core\Header;
                     <button type="button" class="btn btn-sm btn-info" id="btn-run-test-transcribe">
                         <?php echo xlt('Transcribe Test Audio'); ?>
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-info ml-2" id="btn-record-test-transcribe">
+                        <?php echo xlt('Record from Microphone'); ?>
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-secondary ml-2 d-none" id="btn-cancel-test-transcribe">
                         <?php echo xlt('Cancel'); ?>
                     </button>
@@ -694,6 +740,8 @@ use OpenEMR\Core\Header;
 
     let pollTimer = null;
     let pollStart = 0;
+    // Set by the microphone recorder so it can feed the same test bench flow.
+    let pendingTestFile = null;
 
     function stopTestBenchPolling() {
         if (pollTimer) {
@@ -717,12 +765,15 @@ use OpenEMR\Core\Header;
 
     if (btnRunTest && fileInput) {
         btnRunTest.addEventListener('click', function () {
-            if (!fileInput.files || fileInput.files.length === 0) {
+            // The microphone recorder pre-loads a blob here before clicking the button.
+            const file = pendingTestFile || ((fileInput.files && fileInput.files.length > 0) ? fileInput.files[0] : null);
+            pendingTestFile = null;
+
+            if (!file) {
                 alert('<?php echo xlt('Please select an audio file first.'); ?>');
                 return;
             }
 
-            const file = fileInput.files[0];
             outputArea.value = '';
             metaText.textContent = '';
             feedbackDiv.classList.remove('d-none');
@@ -832,6 +883,243 @@ use OpenEMR\Core\Header;
                 stopTestBenchPolling();
                 statusText.className = 'text-danger font-weight-bold';
                 statusText.textContent = '<?php echo xlt('Submission error:'); ?> ' + err.message;
+            });
+        });
+    }
+
+    // 3b. Microphone test — live level meter + device selection.
+    // The chosen device is stored in localStorage so the dictation toolbar (soap-ai.js)
+    // can reuse it in the same browser.
+    const MIC_DEVICE_KEY = 'oe_ai_mic_device_id';
+    const micDeviceSelect = document.getElementById('mic_device_select');
+    const micDeviceHint = document.getElementById('mic-device-hint');
+    const micDeviceLabel = document.getElementById('mic-device-label');
+    const micTestStatus = document.getElementById('mic-test-status');
+    const micLevelBar = document.getElementById('mic-level-bar');
+    const btnMicRefresh = document.getElementById('btn-mic-refresh');
+    const btnMicStart = document.getElementById('btn-mic-test-start');
+    const btnMicStop = document.getElementById('btn-mic-test-stop');
+
+    let micStream = null;
+    let micAudioCtx = null;
+    let micAnalyser = null;
+    let micData = null;
+    let micRaf = null;
+
+    function describeMicError(err) {
+        if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+            return '<?php echo xlt('Microphone permission denied. Please allow access and try again.'); ?>';
+        }
+        if (err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) {
+            return '<?php echo xlt('No microphone was found on this device.'); ?>';
+        }
+        return '<?php echo xlt('Could not access the microphone.'); ?>' + (err && err.message ? ' (' + err.message + ')' : '');
+    }
+
+    function getSavedMicDeviceId() {
+        if (micDeviceSelect && micDeviceSelect.value) return micDeviceSelect.value;
+        try { return localStorage.getItem(MIC_DEVICE_KEY) || ''; } catch (e) { return ''; }
+    }
+
+    function refreshMicDevices() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+            return;
+        }
+        navigator.mediaDevices.enumerateDevices().then(function (devices) {
+            const inputs = devices.filter(function (d) { return d.kind === 'audioinput'; });
+            const saved = getSavedMicDeviceId();
+            micDeviceSelect.innerHTML = '';
+            inputs.forEach(function (d, i) {
+                const opt = document.createElement('option');
+                opt.value = d.deviceId;
+                opt.textContent = d.label || ('<?php echo xlt('Microphone'); ?> ' + (i + 1));
+                if (d.deviceId === saved) opt.selected = true;
+                micDeviceSelect.appendChild(opt);
+            });
+            if (inputs.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = '<?php echo xlt('No microphone was found on this device.'); ?>';
+                micDeviceSelect.appendChild(opt);
+            }
+        }).catch(function () {
+            // enumerateDevices can reject before permission is granted; ignore silently.
+        });
+    }
+
+    function updateMicLevel() {
+        if (!micAnalyser) return;
+        micAnalyser.getByteTimeDomainData(micData);
+        let sum = 0;
+        for (let i = 0; i < micData.length; i++) {
+            const v = (micData[i] - 128) / 128;
+            sum += v * v;
+        }
+        const level = Math.min(100, Math.round(Math.sqrt(sum / micData.length) * 300));
+        if (micLevelBar) {
+            micLevelBar.style.width = level + '%';
+            micLevelBar.className = 'progress-bar ' + (level >= 5 ? 'bg-success' : 'bg-secondary');
+            micLevelBar.setAttribute('aria-valuenow', String(level));
+        }
+        if (level >= 5 && micTestStatus) {
+            micTestStatus.className = 'ml-2 text-success font-weight-bold';
+            micTestStatus.textContent = '<?php echo xlt('Listening, signal detected:'); ?> ' + level + '%';
+        }
+        micRaf = requestAnimationFrame(updateMicLevel);
+    }
+
+    function stopMicTest() {
+        if (micRaf) { cancelAnimationFrame(micRaf); micRaf = null; }
+        if (micStream) {
+            micStream.getTracks().forEach(function (tr) { try { tr.stop(); } catch (e) {} });
+            micStream = null;
+        }
+        if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
+        micAnalyser = null;
+        if (micLevelBar) {
+            micLevelBar.style.width = '0%';
+            micLevelBar.className = 'progress-bar bg-secondary';
+            micLevelBar.setAttribute('aria-valuenow', '0');
+        }
+        if (btnMicStart) btnMicStart.classList.remove('d-none');
+        if (btnMicStop) btnMicStop.classList.add('d-none');
+    }
+
+    function startMicTest() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            micTestStatus.className = 'ml-2 text-danger font-weight-bold';
+            micTestStatus.textContent = '<?php echo xlt('Audio capture is not supported in this browser.'); ?>';
+            return;
+        }
+        const deviceId = getSavedMicDeviceId();
+        const constraints = deviceId ? { audio: { deviceId: { exact: deviceId } } } : { audio: true };
+
+        micTestStatus.className = 'ml-2 text-info font-weight-bold';
+        micTestStatus.textContent = '<?php echo xlt('Requesting microphone access...'); ?>';
+
+        navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+            micStream = stream;
+            // Device labels are only exposed after permission is granted.
+            refreshMicDevices();
+
+            const track = stream.getAudioTracks()[0];
+            if (micDeviceLabel) {
+                micDeviceLabel.textContent = '<?php echo xlt('Active device:'); ?> ' + (track && track.label ? track.label : '');
+            }
+
+            micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = micAudioCtx.createMediaStreamSource(stream);
+            micAnalyser = micAudioCtx.createAnalyser();
+            micAnalyser.fftSize = 2048;
+            micData = new Uint8Array(micAnalyser.fftSize);
+            source.connect(micAnalyser);
+
+            if (btnMicStart) btnMicStart.classList.add('d-none');
+            if (btnMicStop) btnMicStop.classList.remove('d-none');
+            micTestStatus.className = 'ml-2 text-info font-weight-bold';
+            micTestStatus.textContent = '<?php echo xlt('Listening... speak now.'); ?>';
+
+            micRaf = requestAnimationFrame(updateMicLevel);
+        }).catch(function (err) {
+            stopMicTest();
+            micTestStatus.className = 'ml-2 text-danger font-weight-bold';
+            micTestStatus.textContent = describeMicError(err);
+        });
+    }
+
+    if (micDeviceSelect) {
+        micDeviceSelect.addEventListener('change', function () {
+            if (!micDeviceSelect.value) return;
+            try { localStorage.setItem(MIC_DEVICE_KEY, micDeviceSelect.value); } catch (e) {}
+            if (micDeviceHint) {
+                micDeviceHint.className = 'form-text text-success';
+                micDeviceHint.textContent = '<?php echo xlt('Saved. AI dictation will use this microphone in this browser.'); ?>';
+            }
+        });
+        refreshMicDevices();
+    }
+    if (btnMicRefresh) {
+        btnMicRefresh.addEventListener('click', refreshMicDevices);
+    }
+    if (btnMicStart) {
+        btnMicStart.addEventListener('click', startMicTest);
+    }
+    if (btnMicStop) {
+        btnMicStop.addEventListener('click', function () {
+            stopMicTest();
+            micTestStatus.className = 'ml-2 text-muted';
+            micTestStatus.textContent = '<?php echo xlt('Microphone test stopped.'); ?>';
+        });
+    }
+    window.addEventListener('beforeunload', stopMicTest);
+
+    // 3c. Record from the microphone and hand the blob to the Whisper test bench above.
+    const btnRecordTest = document.getElementById('btn-record-test-transcribe');
+    let testRecorder = null;
+    let testRecordStream = null;
+    let testRecordChunks = [];
+
+    function stopTestRecording() {
+        if (testRecorder && testRecorder.state !== 'inactive') {
+            testRecorder.stop();
+        }
+        if (btnRecordTest) {
+            btnRecordTest.textContent = '<?php echo xlt('Record from Microphone'); ?>';
+            btnRecordTest.classList.remove('btn-danger');
+            btnRecordTest.classList.add('btn-outline-info');
+        }
+    }
+
+    if (btnRecordTest) {
+        btnRecordTest.addEventListener('click', function () {
+            if (testRecorder && testRecorder.state === 'recording') {
+                stopTestRecording();
+                return;
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('<?php echo xlt('Audio capture is not supported in this browser.'); ?>');
+                return;
+            }
+            const deviceId = getSavedMicDeviceId();
+            const constraints = deviceId ? { audio: { deviceId: { exact: deviceId } } } : { audio: true };
+
+            navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+                testRecordStream = stream;
+                testRecordChunks = [];
+                let mimeType = '';
+                if (window.MediaRecorder) {
+                    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+                    for (let i = 0; i < candidates.length; i++) {
+                        if (MediaRecorder.isTypeSupported(candidates[i])) { mimeType = candidates[i]; break; }
+                    }
+                }
+                try {
+                    testRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+                } catch (e) {
+                    testRecorder = new MediaRecorder(stream);
+                }
+                testRecorder.ondataavailable = function (e) {
+                    if (e.data && e.data.size > 0) testRecordChunks.push(e.data);
+                };
+                testRecorder.onstop = function () {
+                    if (testRecordStream) {
+                        testRecordStream.getTracks().forEach(function (tr) { try { tr.stop(); } catch (e) {} });
+                        testRecordStream = null;
+                    }
+                    if (testRecordChunks.length === 0) return;
+                    const type = (testRecorder && testRecorder.mimeType) || 'audio/webm';
+                    const blob = new Blob(testRecordChunks, { type: type });
+                    const file = new File([blob], 'microphone-test.webm', { type: type });
+                    pendingTestFile = file;
+                    stopTestBenchPolling();
+                    if (btnRunTest) btnRunTest.click();
+                };
+                testRecorder.start(250);
+                btnRecordTest.textContent = '<?php echo xlt('Stop Recording'); ?>';
+                btnRecordTest.classList.remove('btn-outline-info');
+                btnRecordTest.classList.add('btn-danger');
+            }).catch(function (err) {
+                alert(describeMicError(err));
             });
         });
     }

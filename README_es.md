@@ -111,6 +111,8 @@ oe-module-ai-assistant/
    - Seleccionar el **proveedor de IA** e ingresar la **clave API** correspondiente.
    - Hacer clic en **Guardar Configuración**.
 
+   Opcional: usar la tarjeta **Prueba de Micrófono** para elegir y verificar el micrófono del navegador (medidor de nivel en vivo + nombre del dispositivo activo), y el botón **Grabar desde el Micrófono** del banco de pruebas de Whisper para ejercitar toda la ruta navegador → Whisper sin necesidad de un archivo de audio. El dispositivo elegido se recuerda para el dictado en ese navegador.
+
 ---
 
 ## Referencia de Configuración

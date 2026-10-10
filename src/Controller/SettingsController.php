@@ -137,6 +137,8 @@ class SettingsController
             'ready'                 => xlt('Ready to dictate'),
             'transcript_label'      => xlt('Dictation transcript (you can edit it before generating the draft):'),
             'transcript_placeholder' => xlt('The consultation transcript will appear here...'),
+            'mic_device_label'      => xlt('Microphone'),
+            'mic_default'           => xlt('System default'),
 
             // Recording / upload status
             'recording'             => xlt('Recording consultation...'),

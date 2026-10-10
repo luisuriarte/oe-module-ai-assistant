@@ -111,6 +111,8 @@ oe-module-ai-assistant/
    - Select your **AI provider** and enter the corresponding **API key**.
    - Click **Save Settings**.
 
+   Optional: use the **Microphone Test** card to pick and verify the browser microphone (live level meter + active device label), and the **Record from Microphone** button in the Whisper test bench to exercise the full browser → Whisper path without an audio file. The device you pick is remembered for dictation in that browser.
+
 ---
 
 ## Configuration Reference

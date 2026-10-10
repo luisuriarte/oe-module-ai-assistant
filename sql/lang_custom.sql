@@ -447,7 +447,31 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'year ago', 'año atrás'),
 ('Spanish (Latin American)', 'el', 'years ago', 'años atrás'),
 -- Settings page: patient preview lookup now accepts the external ID (pubpid).
-('Spanish (Latin American)', 'el', 'Patient ID (PID) / External ID:', 'ID del Paciente (PID) / ID Externo:')
+('Spanish (Latin American)', 'el', 'Patient ID (PID) / External ID:', 'ID del Paciente (PID) / ID Externo:'),
+
+-- Settings page — Microphone test (live browser capture) and microphone-to-Whisper recording
+('Spanish (Latin American)', 'el', 'Microphone Test', 'Prueba de Micrófono'),
+('Spanish (Latin American)', 'el', 'Verifies that this browser captures your voice before you dictate. The audio is analyzed locally in the browser and is never uploaded from this panel.', 'Verifica que este navegador capte su voz antes de dictar. El audio se analiza localmente en el navegador y nunca se sube desde este panel.'),
+('Spanish (Latin American)', 'el', 'Input device', 'Dispositivo de entrada'),
+('Spanish (Latin American)', 'el', 'Refresh', 'Actualizar'),
+('Spanish (Latin American)', 'el', 'The selected device is remembered for AI dictation in this browser.', 'El dispositivo seleccionado se recuerda para el dictado con IA en este navegador.'),
+('Spanish (Latin American)', 'el', 'Start Microphone Test', 'Iniciar Prueba de Micrófono'),
+('Spanish (Latin American)', 'el', 'Stop Test', 'Detener Prueba'),
+('Spanish (Latin American)', 'el', 'Live level', 'Nivel en vivo'),
+('Spanish (Latin American)', 'el', 'Active device:', 'Dispositivo activo:'),
+('Spanish (Latin American)', 'el', 'Requesting microphone access...', 'Solicitando acceso al micrófono...'),
+('Spanish (Latin American)', 'el', 'Listening... speak now.', 'Escuchando... hable ahora.'),
+('Spanish (Latin American)', 'el', 'Listening, signal detected:', 'Escuchando, señal detectada:'),
+('Spanish (Latin American)', 'el', 'Microphone test stopped.', 'Prueba de micrófono detenida.'),
+('Spanish (Latin American)', 'el', 'Saved. AI dictation will use this microphone in this browser.', 'Guardado. El dictado con IA usará este micrófono en este navegador.'),
+('Spanish (Latin American)', 'el', 'Microphone permission denied. Please allow access and try again.', 'Permiso de micrófono denegado. Por favor permita el acceso e intente nuevamente.'),
+('Spanish (Latin American)', 'el', 'No microphone was found on this device.', 'No se encontró ningún micrófono en este dispositivo.'),
+('Spanish (Latin American)', 'el', 'Could not access the microphone.', 'No se pudo acceder al micrófono.'),
+('Spanish (Latin American)', 'el', 'Audio capture is not supported in this browser.', 'La captura de audio no es compatible con este navegador.'),
+('Spanish (Latin American)', 'el', 'Microphone', 'Micrófono'),
+('Spanish (Latin American)', 'el', 'Record from Microphone', 'Grabar desde el Micrófono'),
+('Spanish (Latin American)', 'el', 'Stop Recording', 'Detener Grabación'),
+('Spanish (Latin American)', 'el', 'System default', 'Predeterminado del sistema')
 );
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)

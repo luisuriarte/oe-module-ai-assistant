@@ -192,6 +192,29 @@
     font-style: italic;
 }
 
+/* Microphone picker (dictation toolbar) */
+.oe-ai-mic-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #2563eb;
+}
+
+.oe-ai-mic-select {
+    font-size: 0.85rem;
+    padding: 5px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #374151;
+    max-width: 220px;
+}
+
+/* The device cannot be changed while a recording is in progress. */
+.oe-ai-dictation-container.recording .oe-ai-mic-picker {
+    display: none;
+}
+
 /* ==================== Transcript Drawer ==================== */
 .oe-ai-transcript-panel {
     margin-top: 12px;

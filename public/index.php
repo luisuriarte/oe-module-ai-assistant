@@ -28,6 +28,17 @@ use OpenEMR\Modules\AiAssistant\Controller\SettingsController;
 use OpenEMR\Modules\AiAssistant\Controller\SoapAiFormController;
 use OpenEMR\Modules\AiAssistant\Controller\TranscribeController;
 
+// ADODB funnels SQL error/warning text through ADOConnection::outp(), which echoes it to the
+// response because OpenEMR never defines the ADODB_OUTP handler. When a query fails — for
+// example a module table that was never created — the driver prints the raw SQL error *before*
+// the exception is thrown, so a controller can catch the failure while the echoed text still
+// corrupts the JSON body (the browser then reports "Unexpected token ... is not valid JSON").
+// Route that output to the log so every endpoint keeps its JSON contract. The closure matches
+// ADOConnection::outp()'s signature: function (string $msg, bool $newline).
+$GLOBALS['ADODB_OUTP'] = static function (string $msg, bool $newline = true): void {
+    (new SystemLogger())->error('[AiAssistant] ADODB: ' . trim(strip_tags($msg)));
+};
+
 // --- Session guard ---
 $session = SessionAccessor::resolve();
 // Fail closed: with no usable session there is no authenticated user.

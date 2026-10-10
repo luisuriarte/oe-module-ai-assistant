@@ -25,6 +25,16 @@ All notable changes to **oe-module-ai-assistant**.
   (OpenAI-compatible). Selectable as `zai` on the settings page with defaults
   `https://api.z.ai/api/paas/v4`, model `glm-4-flash`, temperature `0.2`, max tokens `4096`;
   API key stored encrypted as `zai_api_key`.
+- **Microphone test (settings)** — new **Microphone Test** card that lists the browser
+  input devices (`enumerateDevices`), shows a live level meter (Web Audio `AnalyserNode`)
+  and displays the active device label, so an administrator can confirm the correct
+  microphone before dictating. The chosen device is stored in `localStorage` and reused by
+  the dictation toolbar (`soap-ai.js`), with an automatic fallback to the system default.
+  The dictation toolbar also exposes an inline **microphone selector** (hidden while
+  recording) so any user can pick the input device without admin access.
+  A **Record from Microphone** button in the Whisper test bench records a clip and feeds
+  the existing test-mode `transcribe_submit` flow, validating the full browser → Whisper
+  chain without needing an external audio file.
 - `LICENSE` (GNU GPL v3, mirrored from the OpenEMR repository) and this `CHANGELOG.md`.
 
 ### Changed
@@ -43,6 +53,11 @@ All notable changes to **oe-module-ai-assistant**.
   column** (caught by `tests/SchemaAudit.php` against `sql/database.sql`). The column is
   `lists.severity_al`; the value is now resolved to a readable `severity_ccda` title via the
   native `ListService` when available.
+- **Raw SQL error text could corrupt JSON responses** — `ADOConnection::outp()` echoes the
+  driver message when a query fails and `ADODB_OUTP` is undefined (the OpenEMR default), so
+  a controller could catch the exception while the echoed text still broke the JSON body
+  (browser: `Unexpected token ... is not valid JSON`). `public/index.php` now routes that
+  output to the system log via `$GLOBALS['ADODB_OUTP']`.
 
 ## Milestone history
 

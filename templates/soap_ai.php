@@ -117,6 +117,11 @@ $config = [
                         <span class="oe-ai-status-text" id="oe-ai-status" data-i18n="ready"><?php echo xlt('Ready to dictate'); ?></span>
                     </div>
                     <div class="oe-ai-right-group">
+                        <span class="oe-ai-mic-picker" id="oe-ai-mic-picker">
+                            <i class="fa fa-microphone" aria-hidden="true"></i>
+                            <label class="sr-only" for="oe-ai-mic-select" data-i18n="mic_device_label"><?php echo xlt('Microphone'); ?></label>
+                            <select class="oe-ai-mic-select" id="oe-ai-mic-select" aria-label="<?php echo xla('Microphone'); ?>"></select>
+                        </span>
                         <button type="button" class="oe-ai-btn oe-ai-btn-generate" id="oe-ai-btn-generate" style="display: none;">
                             <i class="fa fa-magic" aria-hidden="true"></i>
                             <span data-i18n="generate_soap"><?php echo xlt('Generate SOAP Note'); ?></span>
