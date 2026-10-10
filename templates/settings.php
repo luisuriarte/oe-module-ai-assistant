@@ -140,7 +140,7 @@ use OpenEMR\Core\Header;
                 <div class="form-group">
                     <label for="active_provider"><strong><?php echo xlt('Active Provider'); ?></strong></label>
                     <select class="form-control w-auto" id="active_provider" name="active_provider">
-                        <?php foreach (['openai' => 'OpenAI-compatible', 'anthropic' => 'Anthropic', 'gemini' => 'Google Gemini', 'grok' => 'Grok (xAI)'] as $val => $label): ?>
+                        <?php foreach (['openai' => 'OpenAI-compatible', 'anthropic' => 'Anthropic', 'gemini' => 'Google Gemini', 'grok' => 'Grok (xAI)', 'zai' => 'Z.ai (GLM)'] as $val => $label): ?>
                         <option value="<?php echo attr($val); ?>"
                             <?php echo ($current['active_provider'] ?? 'openai') === $val ? 'selected' : ''; ?>>
                             <?php echo text($label); ?>
@@ -324,6 +324,49 @@ use OpenEMR\Core\Header;
                     </button>
                     <span class="provider-test-result ml-2" data-provider="grok"></span>
                 </fieldset>
+
+                <!-- Z.ai (GLM) -->
+                <fieldset class="border p-2 mb-3 provider-fields" id="fields-zai">
+                    <legend class="w-auto px-2"><?php echo xlt('Z.ai (GLM)'); ?></legend>
+                    <div class="row">
+                        <div class="col-md-5 form-group">
+                            <label><?php echo xlt('Base URL'); ?></label>
+                            <input type="url" class="form-control" name="zai_base_url"
+                                   value="<?php echo attr($current['zai_base_url'] ?? 'https://api.z.ai/api/paas/v4'); ?>">
+                        </div>
+                        <div class="col-md-3 form-group">
+                            <label><?php echo xlt('Model'); ?></label>
+                            <input type="text" class="form-control" name="zai_model"
+                                   value="<?php echo attr($current['zai_model'] ?? 'glm-4-flash'); ?>">
+                        </div>
+                        <div class="col-md-2 form-group">
+                            <label><?php echo xlt('Temperature'); ?></label>
+                            <input type="number" step="0.1" min="0" max="2" class="form-control" name="zai_temperature"
+                                   value="<?php echo attr($current['zai_temperature'] ?? '0.2'); ?>">
+                        </div>
+                        <div class="col-md-2 form-group">
+                            <label><?php echo xlt('Max tokens'); ?></label>
+                            <input type="number" min="256" max="16384" class="form-control" name="zai_max_tokens"
+                                   value="<?php echo attr($current['zai_max_tokens'] ?? '4096'); ?>">
+                        </div>
+                        <div class="col-md-6 form-group">
+                            <label>
+                                <?php echo xlt('API Key'); ?>
+                                <?php if ($keyStatus['zai_api_key']): ?>
+                                <span class="key-saved-badge"><?php echo xlt('Key saved'); ?></span>
+                                <?php endif; ?>
+                            </label>
+                            <input type="password" class="form-control" name="zai_api_key"
+                                   placeholder="<?php echo attr($keyStatus['zai_api_key'] ? xlt('Leave blank to keep existing key') : xlt('Enter API key')); ?>"
+                                   autocomplete="new-password">
+                            <small class="form-text text-muted"><?php echo xlt('Never stored in logs or sent to the browser.'); ?></small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="zai">
+                        <?php echo xlt('Test Z.ai Connection'); ?>
+                    </button>
+                    <span class="provider-test-result ml-2" data-provider="zai"></span>
+                </fieldset>
             </div>
         </div>
 
@@ -498,7 +541,7 @@ use OpenEMR\Core\Header;
         </div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                <?php echo xlt('Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, Anthropic, or Grok). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.'); ?>
+                <?php echo xlt('Send a synthetic test prompt through the real provider layer (Gemini, OpenAI, Anthropic, Grok, or Z.ai). Verifies authentication, HTTPS payload formatting, token counting, and audit recording. Audited with patient_id = 0.'); ?>
             </p>
             <div class="row mb-3">
                 <div class="col-md-3 form-group">
@@ -508,6 +551,7 @@ use OpenEMR\Core\Header;
                         <option value="openai" <?php echo ($current['active_provider'] ?? '') === 'openai' ? 'selected' : ''; ?>>OpenAI-compatible</option>
                         <option value="anthropic" <?php echo ($current['active_provider'] ?? '') === 'anthropic' ? 'selected' : ''; ?>>Anthropic</option>
                         <option value="grok" <?php echo ($current['active_provider'] ?? '') === 'grok' ? 'selected' : ''; ?>>Grok (xAI)</option>
+                        <option value="zai" <?php echo ($current['active_provider'] ?? '') === 'zai' ? 'selected' : ''; ?>>Z.ai (GLM)</option>
                     </select>
                 </div>
                 <div class="col-md-9 form-group">
@@ -582,7 +626,7 @@ use OpenEMR\Core\Header;
     // 1. Show/hide provider fieldsets based on active provider selection
     const select = document.getElementById('active_provider');
     function toggle() {
-        ['openai', 'anthropic', 'gemini', 'grok'].forEach(function (p) {
+        ['openai', 'anthropic', 'gemini', 'grok', 'zai'].forEach(function (p) {
             const el = document.getElementById('fields-' + p);
             if (el) el.style.display = (select.value === p) ? '' : 'none';
         });
@@ -792,7 +836,7 @@ use OpenEMR\Core\Header;
         });
     }
 
-    // 4. Provider connection test buttons (Gemini / OpenAI / Anthropic / Grok)
+    // 4. Provider connection test buttons (Gemini / OpenAI / Anthropic / Grok / Z.ai)
     document.querySelectorAll('.btn-test-provider').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const provider = btn.dataset.provider;

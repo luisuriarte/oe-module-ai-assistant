@@ -20,6 +20,7 @@ use OpenEMR\Modules\AiAssistant\Provider\Adapter\AnthropicAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\GeminiAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\GrokAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\OpenAiAdapter;
+use OpenEMR\Modules\AiAssistant\Provider\Adapter\ZaiAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderAuthenticationException;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
@@ -35,7 +36,7 @@ class ProviderFactory
     /**
      * Creates an adapter instance for the given provider (or active provider if null).
      *
-     * @param string|null $provider 'openai', 'anthropic', 'gemini', 'grok'
+     * @param string|null $provider 'openai', 'anthropic', 'gemini', 'grok', 'zai'
      * @param string|null $overrideKey Optional override key (e.g. from test form)
      * @return AiProviderInterface
      * @throws ProviderAuthenticationException
@@ -50,6 +51,7 @@ class ProviderFactory
             'anthropic' => 'anthropic_api_key',
             'gemini'    => 'gemini_api_key',
             'grok'      => 'grok_api_key',
+            'zai'       => 'zai_api_key',
         ];
 
         if (!isset($keyMap[$targetProvider])) {
@@ -100,6 +102,14 @@ class ProviderFactory
                 temperature: (float) $this->settings->get('grok_temperature', 0.2),
                 maxTokens: (int) $this->settings->get('grok_max_tokens', 2048),
                 baseUrl: (string) $this->settings->get('grok_base_url', GrokAdapter::DEFAULT_BASE_URL),
+                allowPrivate: $allowPrivate,
+            ),
+            'zai' => new ZaiAdapter(
+                apiKey: $apiKey,
+                model: (string) $this->settings->get('zai_model', ZaiAdapter::DEFAULT_MODEL),
+                temperature: (float) $this->settings->get('zai_temperature', 0.2),
+                maxTokens: (int) $this->settings->get('zai_max_tokens', 4096),
+                baseUrl: (string) $this->settings->get('zai_base_url', ZaiAdapter::DEFAULT_BASE_URL),
                 allowPrivate: $allowPrivate,
             ),
         };

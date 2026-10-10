@@ -274,7 +274,7 @@ class SettingsController
 
         // Save each expected key from POST, skipping encrypted keys if blank
         // (blank = "do not change existing key")
-        $encryptedKeys = ['openai_api_key', 'anthropic_api_key', 'gemini_api_key', 'grok_api_key'];
+        $encryptedKeys = ['openai_api_key', 'anthropic_api_key', 'gemini_api_key', 'grok_api_key', 'zai_api_key'];
 
         foreach (array_keys($defaults) as $key) {
             if ($key === 'consent_acknowledged') {
@@ -338,6 +338,7 @@ class SettingsController
             'anthropic_api_key' => $this->settings->hasEncryptedValue('anthropic_api_key'),
             'gemini_api_key'    => $this->settings->hasEncryptedValue('gemini_api_key'),
             'grok_api_key'      => $this->settings->hasEncryptedValue('grok_api_key'),
+            'zai_api_key'       => $this->settings->hasEncryptedValue('zai_api_key'),
         ];
 
         $consentGiven = $this->settings->isConsentGiven();

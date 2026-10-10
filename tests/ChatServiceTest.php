@@ -97,20 +97,21 @@ class RecordingProvider implements AiProviderInterface
 // -------------------------------------------------------------------------
 
 /**
- * Mirrors the headers PatientContextBuilder emits, including the accented ones and the
- * dated vital-signs header, so section detection is tested against real shapes.
+ * Mirrors the headers PatientContextBuilder emits (English source strings that the
+ * module renders through xl()), including the dated vital-signs header, so section
+ * detection is tested against real shapes.
  */
 function chatFixtureContext(): string
 {
-    return "## CONTEXTO CLÍNICO DEL PACIENTE\n\n"
-        . "### PERFIL DEL PACIENTE\n- Edad: 54 años\n- Sexo: masculino\n\n"
-        . "### ALERGIAS CONOCIDAS\n- Penicilina\n\n"
-        . "### PROBLEMAS ACTIVOS\n- Hipertensión\n\n"
-        . "### MEDICACIÓN ACTUAL\n- Losartán 50 mg cada 12 h\n\n"
-        . "### ANTECEDENTES Y HÁBITOS\n- Fumador activo\n\n"
-        . "### SIGNOS VITALES RECIENTES (2026-01-04)\n- PA: 140/90 mmHg\n\n"
-        . "### CONSULTAS Y EVOLUCIONES PREVIAS (SOAP)\n- 2026-01-04: control\n\n"
-        . "### RESULTADOS DE LABORATORIO RECIENTES\n- Glucosa: 95 mg/dL\n";
+    return "## PATIENT CLINICAL CONTEXT\n\n"
+        . "### PATIENT PROFILE\n- Age: 54 years\n- Sex: male\n\n"
+        . "### KNOWN ALLERGIES\n- Penicillin\n\n"
+        . "### ACTIVE PROBLEMS\n- Hypertension\n\n"
+        . "### CURRENT MEDICATIONS\n- Losartan 50 mg every 12 h\n\n"
+        . "### HISTORY AND HABITS\n- Current smoker\n\n"
+        . "### RECENT VITAL SIGNS (2026-01-04)\n- BP: 140/90 mmHg\n\n"
+        . "### PREVIOUS ENCOUNTERS (SOAP)\n- 2026-01-04: follow-up\n\n"
+        . "### RECENT LABORATORY RESULTS\n- Glucose: 95 mg/dL\n";
 }
 
 function chatServiceFixture(?string $reply = null, array $settings = [], ?string $context = 'auto'): ChatService
@@ -232,18 +233,18 @@ foreach (array_keys(ChatService::SECTION_PATTERNS) as $key) {
     ok($svc->sectionPresent($key, $ctx), "section '$key' detected in the chart context");
 }
 
-ok(!$svc->sectionPresent('laboratorio', "### PERFIL DEL PACIENTE\n"), 'a section absent from the context is not detected');
+ok(!$svc->sectionPresent('laboratorio', "### PATIENT PROFILE\n"), 'a section absent from the context is not detected');
 ok(!$svc->sectionPresent('perfil', ''), 'an empty context detects nothing');
 
-// The accented headers are the fragile ones: assert them explicitly.
-ok($svc->sectionPresent('medicacion', "### MEDICACIÓN ACTUAL\n- x"), 'accented MEDICACIÓN header matches');
-ok($svc->sectionPresent('antecedentes', "### ANTECEDENTES Y HÁBITOS\n- x"), 'accented HÁBITOS header matches');
-ok($svc->sectionPresent('signos_vitales', "### SIGNOS VITALES RECIENTES (2026-01-04)\n"), 'dated vital-signs header matches');
+// Explicit header shapes: plain, accented-free ASCII source strings.
+ok($svc->sectionPresent('medicacion', "### CURRENT MEDICATIONS\n- x"), 'medication header matches');
+ok($svc->sectionPresent('antecedentes', "### HISTORY AND HABITS\n- x"), 'history header matches');
+ok($svc->sectionPresent('signos_vitales', "### RECENT VITAL SIGNS (2026-01-04)\n"), 'dated vital-signs header matches');
 
 echo "--- Citations ---\n";
 // The fixture context contains the laboratory section, so this reduced context is used
 // to prove that a cite tag for an absent section is never reported as a source.
-$ctxNoLabs = (string) preg_replace('/\n+### RESULTADOS DE LABORATORIO RECIENTES.*$/s', '', $ctx);
+$ctxNoLabs = (string) preg_replace('/\n+### RECENT LABORATORY RESULTS.*$/s', '', $ctx);
 
 $reply = "Toma Losartán 50 mg [[cite:medicacion]] y la glucosa fue 95 [[cite:laboratorio]] [[cite:bogus]] [[cite:medicacion]].";
 $en    = chatServiceFixture($reply, ['output_language' => 'en']);
@@ -286,7 +287,7 @@ ok($provider->calls === 1, 'the provider is called exactly once');
 $messages = $provider->lastMessages;
 ok(count($messages) === 4, 'system + 2 history turns + current question');
 ok($messages[0]['role'] === 'system', 'the first message is the system prompt');
-ok(str_contains($messages[0]['content'], '### ALERGIAS CONOCIDAS'), 'the chart context is embedded in the system message');
+ok(str_contains($messages[0]['content'], '### KNOWN ALLERGIES'), 'the chart context is embedded in the system message');
 ok(str_contains($messages[0]['content'], '[[cite:alergias]]'), 'the citation vocabulary is part of the instructions');
 ok($messages[1]['role'] === 'user' && $messages[1]['content'] === 'primera pregunta', 'history turn 1 preserved');
 ok($messages[2]['role'] === 'assistant' && $messages[2]['content'] === 'primera respuesta', 'history turn 2 preserved');

@@ -33,6 +33,7 @@ class SettingsManager
         'anthropic_api_key',
         'gemini_api_key',
         'grok_api_key',
+        'zai_api_key',
     ];
 
     private CryptoGen $crypto;
@@ -154,7 +155,7 @@ class SettingsManager
     }
 
     /**
-     * Returns the configured active provider name (e.g. 'openai', 'anthropic', 'gemini', 'grok').
+     * Returns the configured active provider name (e.g. 'openai', 'anthropic', 'gemini', 'grok', 'zai').
      */
     public function getActiveProvider(): string
     {
@@ -179,6 +180,7 @@ class SettingsManager
                 'anthropic' => 'anthropic_api_key',
                 'gemini'    => 'gemini_api_key',
                 'grok'      => 'grok_api_key',
+                'zai'       => 'zai_api_key',
             ];
 
             if (isset($keyMap[$provider])) {
@@ -234,6 +236,13 @@ class SettingsManager
             'grok_temperature'       => '0.2',
             'grok_max_tokens'        => '2048',
             'grok_api_key'           => '',   // encrypted
+
+            // Z.ai (GLM) — OpenAI-compatible endpoint
+            'zai_base_url'           => 'https://api.z.ai/api/paas/v4',
+            'zai_model'              => 'glm-4-flash',
+            'zai_temperature'        => '0.2',
+            'zai_max_tokens'         => '4096',
+            'zai_api_key'            => '',   // encrypted
 
             // Context
             'context_include_labs'   => '0',

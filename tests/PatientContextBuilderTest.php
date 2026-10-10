@@ -54,18 +54,15 @@ if (!class_exists('OpenEMR\\Common\\Acl\\AclMain')) {
     class_alias(MockAclMain::class, 'OpenEMR\\Common\\Acl\\AclMain');
 }
 
-// Mock OpenEMR xlt/xl functions if not present
-if (!function_exists('xlt')) {
-    function xlt(string $text): string
-    {
-        return $text;
-    }
-}
+// Mock OpenEMR xlt/xl functions if not present. The builder calls these unqualified
+// from its own namespace, so they must exist in the GLOBAL namespace; a plain
+// `function xl()` inside this namespaced file would land in the Tests namespace and
+// never be found. The eval body opens a global namespace block to force that.
 if (!function_exists('xl')) {
-    function xl(string $text): string
-    {
-        return $text;
-    }
+    eval('namespace { function xl(string $text): string { return $text; } }');
+}
+if (!function_exists('xlt')) {
+    eval('namespace { function xlt(string $text): string { return $text; } }');
 }
 
 use OpenEMR\Common\Acl\AclMain;
@@ -104,6 +101,7 @@ class PatientContextBuilderTest
         $this->testSqlWhitelistAndAgeOnly();
         $this->testActiveAllergiesAndProblems();
         $this->testActiveMedicationsExcludesDiscontinued();
+        $this->testLifestylePipeRendering();
         $this->testSoftDeletedNotesExclusion();
         $this->testCrossPatientIsolation();
         $this->testEncounterSensitivityAcl();
@@ -226,16 +224,25 @@ class PatientContextBuilderTest
             if (str_contains($cleanSql, 'from history_data')) {
                 $pid = (int) ($params[0] ?? 0);
                 if ($pid === 42) {
+                    if (isset($customData['history_data'])) {
+                        return $customData['history_data'];
+                    }
                     return [
                         [
-                            'tobacco'          => 'Former smoker (quit 2012)',
-                            'alcohol'          => 'Occasional social wine',
-                            'exercise'         => '',
-                            'diet'             => '',
-                            'medical_history'  => 'Appendectomy 2004, contact at dr.smith@clinic.com or phone 555-0199',
-                            'surgical_history' => '',
-                            'family_history'   => 'Mother: Hypertension, Father: Infarction',
-                            'social_history'   => '',
+                            'tobacco'              => 'Former smoker (quit 2012)',
+                            'alcohol'              => 'Occasional social wine',
+                            'coffee'               => '',
+                            'exercise_patterns'    => '',
+                            'sleep_patterns'       => '',
+                            'recreational_drugs'   => '',
+                            'hazardous_activities' => '',
+                            'additional_history'   => 'Appendectomy 2004, contact at dr.smith@clinic.com or phone 555-0199',
+                            'counseling'           => '',
+                            'history_mother'       => '',
+                            'history_father'       => '',
+                            'history_siblings'     => '',
+                            'history_offspring'    => '',
+                            'history_spouse'       => '',
                         ]
                     ];
                 }
@@ -345,7 +352,7 @@ class PatientContextBuilderTest
         $context = $builder->buildContext(42)['text'];
 
         $this->assert(
-            str_contains(strtolower($context), 'edad') && str_contains(strtolower($context), 'años'),
+            str_contains(strtolower($context), 'age') && str_contains(strtolower($context), 'years'),
             'Age is computed server-side and present in demographics',
             'Expected computed age in header'
         );
@@ -411,6 +418,69 @@ class PatientContextBuilderTest
         $this->assert(str_contains($context, 'Metformin 500mg'), 'Active prescription included');
     }
 
+    /**
+     * OpenEMR stores lifestyle answers as pipe-delimited coded strings
+     * (note|type|date[|option_id|packs]). The builder must render them as readable
+     * text, drop empty "none" entries, never leak a raw pipe value or a
+     * current/quit/never token, and leave plain free text untouched. Tobacco must
+     * render without ListService (absent in this standalone environment).
+     */
+    public function testLifestylePipeRendering(): void
+    {
+        $settings = new MockSettingsManager();
+        $customData = [
+            'history_data' => [[
+                'tobacco'              => '|quittobacco|2012-05-01|3|2',
+                'alcohol'              => 'Dos copas al día|currentalcohol|',
+                'coffee'               => '|0|',
+                'exercise_patterns'    => '|neverexercise|',
+                'sleep_patterns'       => '|currentsleep|',
+                'recreational_drugs'   => '|not_applicablerecreationaldrugs|',
+                'hazardous_activities' => '|0|',
+                'additional_history'   => 'Free text history without pipes',
+                'counseling'           => '',
+                'history_mother'       => '',
+                'history_father'       => '',
+                'history_siblings'     => '',
+                'history_offspring'    => '',
+                'history_spouse'       => '',
+            ]],
+        ];
+
+        $db = $this->createSimulatedDatabase($customData);
+        $builder = new PatientContextBuilder($settings, $db);
+        $context = $builder->buildContext(42)['text'];
+
+        // Never leak raw storage or coded status tokens.
+        $this->assert(!str_contains($context, '|'), 'No raw pipe storage leaks into the context');
+        $this->assert(
+            !str_contains($context, 'currentalcohol') && !str_contains($context, 'quittobacco')
+                && !str_contains($context, 'neverexercise'),
+            'No raw coded status token leaks into the context'
+        );
+
+        // "none"/"0" without a note is omitted; a none value is never rendered raw.
+        $this->assert(!str_contains($context, 'Coffee:'), 'A none-status field with no note is omitted');
+        $this->assert(!str_contains($context, 'Hazardous activities:'), 'A none-status hazardous-activity field is omitted');
+
+        // Tobacco renders readably with quit date and packs/day, without ListService.
+        $this->assert(str_contains($context, 'Tobacco: former smoker'), 'Tobacco renders a readable former-smoker status');
+        $this->assert(str_contains($context, '2012-05-01'), 'Tobacco quit date is rendered');
+        $this->assert(str_contains($context, '2 packs/day'), 'Tobacco packs per day is rendered');
+
+        // Status wording and notes.
+        $this->assert(str_contains($context, 'Alcohol: current (Dos copas al día)'), 'A coded field status and note render readably');
+        $this->assert(str_contains($context, 'Physical activity: never'), 'A never status is rendered (not dropped)');
+        $this->assert(str_contains($context, 'Sleep: current'), 'A current status with no note renders readably');
+        $this->assert(str_contains($context, 'Recreational drugs: not applicable'), 'A not-applicable status renders');
+
+        // Plain free text without a pipe passes through unchanged.
+        $this->assert(
+            str_contains($context, 'Additional history: Free text history without pipes'),
+            'Free text without pipes passes through unchanged'
+        );
+    }
+
     public function testSoftDeletedNotesExclusion(): void
     {
         $settings = new MockSettingsManager();
@@ -439,7 +509,7 @@ class PatientContextBuilderTest
         $context = $builder->buildContext(42)['text'];
 
         $this->assert($sqlChecked, 'SOAP notes query explicitly enforces f.deleted = 0 soft-delete filter');
-        $this->assert(!str_contains($context, 'Subjetivo:'), 'Deleted note content omitted from context');
+        $this->assert(!str_contains($context, 'Subjective:'), 'Deleted note content omitted from context');
     }
 
     public function testCrossPatientIsolation(): void
@@ -649,8 +719,8 @@ class PatientContextBuilderTest
 
         $context = $builder->buildContext(42)['text'];
 
-        $this->assert(str_contains($context, 'hoy'), 'Relative date formatting replaces today with "hoy"');
-        $this->assert(str_contains($context, 'ayer'), 'Relative date formatting replaces yesterday with "ayer"');
+        $this->assert(str_contains($context, 'today'), 'Relative date formatting replaces today with "today"');
+        $this->assert(str_contains($context, 'yesterday'), 'Relative date formatting replaces yesterday with "yesterday"');
     }
 
     public function testLabsSettingGating(): void
@@ -661,14 +731,14 @@ class PatientContextBuilderTest
         $settingsOff = new MockSettingsManager(['context_include_labs' => '0']);
         $builderOff = new PatientContextBuilder($settingsOff, $db);
         $contextOff = $builderOff->buildContext(42)['text'];
-        $this->assert(!str_contains($contextOff, 'LABORATORIOS RECIENTES'), 'Labs are omitted when context_include_labs = 0 (default)');
+        $this->assert(!str_contains($contextOff, 'RECENT LABORATORY RESULTS'), 'Labs are omitted when context_include_labs = 0 (default)');
         $this->assert(!str_contains($contextOff, 'HbA1c'), 'Lab test HbA1c not present when setting is off');
 
         // 2. Enabled by admin
         $settingsOn = new MockSettingsManager(['context_include_labs' => '1']);
         $builderOn = new PatientContextBuilder($settingsOn, $db);
         $contextOn = $builderOn->buildContext(42)['text'];
-        $this->assert(str_contains($contextOn, 'LABORATORIO'), 'Labs header included when context_include_labs = 1');
+        $this->assert(str_contains($contextOn, 'RECENT LABORATORY RESULTS'), 'Labs header included when context_include_labs = 1');
         $this->assert(str_contains($contextOn, 'HbA1c') && str_contains($contextOn, '6.4'), 'Lab test HbA1c present when setting is on');
     }
 

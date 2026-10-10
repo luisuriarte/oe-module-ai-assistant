@@ -54,22 +54,22 @@ class ChatService
     private const TIMEOUT_SEC = 45;
 
     /**
-     * Section keys the model may cite, mapped to an ASCII regex that matches the header
+     * Section keys the model may cite, mapped to the English source header that
      * PatientContextBuilder emits for that section.
      *
-     * The patterns are deliberately ASCII-only (`.` stands in for the accented character)
-     * and are always matched with the /u modifier, so they never depend on the source
-     * file's encoding of MEDICACIÓN or HÁBITOS.
+     * Both the builder and this detector pass the source through xl(), so a context
+     * rendered in any session language is matched by its translated header. The
+     * English source is a plain ASCII substring, so no encoding guesswork is needed.
      */
     public const SECTION_PATTERNS = [
-        'perfil'         => 'PERFIL DEL PACIENTE',
-        'alergias'       => 'ALERGIAS CONOCIDAS',
-        'problemas'      => 'PROBLEMAS ACTIVOS',
-        'medicacion'     => 'MEDICACI.N ACTUAL',
-        'antecedentes'   => 'ANTECEDENTES Y H.BITOS',
-        'signos_vitales' => 'SIGNOS VITALES RECIENTES',
-        'consultas_soap' => 'CONSULTAS Y EVOLUCIONES PREVIAS',
-        'laboratorio'    => 'RESULTADOS DE LABORATORIO RECIENTES',
+        'perfil'         => 'PATIENT PROFILE',
+        'alergias'       => 'KNOWN ALLERGIES',
+        'problemas'      => 'ACTIVE PROBLEMS',
+        'medicacion'     => 'CURRENT MEDICATIONS',
+        'antecedentes'   => 'HISTORY AND HABITS',
+        'signos_vitales' => 'RECENT VITAL SIGNS',
+        'consultas_soap' => 'PREVIOUS ENCOUNTERS',
+        'laboratorio'    => 'RECENT LABORATORY RESULTS',
     ];
 
     /**
@@ -309,7 +309,12 @@ class ChatService
             return false;
         }
 
-        return (bool) preg_match('/' . $pattern . '/u', $context);
+        // Match the same translation the builder wrote into the context. When the
+        // translation layer is unavailable (standalone tests, CLI) the English source
+        // is used, which is what the builder emits in that same situation.
+        $needle = function_exists('xl') ? xl($pattern) : $pattern;
+
+        return str_contains($context, $needle);
     }
 
     /**

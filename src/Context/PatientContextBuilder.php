@@ -15,7 +15,8 @@
  *      via AclMain::aclCheckCore('sensitivities', $sensitivity).
  *   5. Best-Effort Redaction: Replaces phones, emails, and ID digit sequences in free text.
  *   6. Budget & Truncation: Manages token budget; oldest encounters truncated first.
- *   7. Date Formatting: Configurable absolute (YYYY-MM-DD) or relative ("hace X días").
+ *   7. Date Formatting: Configurable absolute (YYYY-MM-DD) or relative ("X days ago"),
+ *      rendered through OpenEMR's xl() so the wording follows the session language.
  *   8. Automated Leak Checking: Scans generated context against real patient identifiers.
  *   9. Native Services First: Patient data is read through OpenEMR's official readers
  *      (PatientIssuesService, SocialHistoryService, ProcedureService, ClinicalNotesService)
@@ -337,22 +338,22 @@ class PatientContextBuilder
             $diffDays = (int) $nowDate->diff($dtDate)->format('%r%a');
 
             if ($diffDays === 0) {
-                return 'hoy';
+                return xl('today');
             }
             if ($diffDays === -1) {
-                return 'ayer';
+                return xl('yesterday');
             }
             if ($diffDays < 0) {
                 $daysAgo = abs($diffDays);
                 if ($daysAgo < 30) {
-                    return "hace {$daysAgo} días";
+                    return $daysAgo . ' ' . xl('days ago');
                 }
                 if ($daysAgo < 365) {
                     $months = (int) round($daysAgo / 30.4);
-                    return "hace {$months} " . ($months === 1 ? 'mes' : 'meses');
+                    return $months . ' ' . ($months === 1 ? xl('month ago') : xl('months ago'));
                 }
                 $years = (int) round($daysAgo / 365.25);
-                return "hace {$years} " . ($years === 1 ? 'año' : 'años');
+                return $years . ' ' . ($years === 1 ? xl('year ago') : xl('years ago'));
             }
 
             return $dt->format('Y-m-d');
@@ -464,11 +465,11 @@ class PatientContextBuilder
      * ListService. Values that cannot be resolved (free text, missing option) are
      * returned unchanged.
      *
-     * OpenEMR stores the smoking status in history_data.tobacco as a pipe-delimited
-     * string whose status option_id and pack count sit at indexes
-     * SmokingStatusType::COLUMN_TOBACCO_INDEX_SMOKING_STATUS (3) and
-     * COLUMN_TOBACCO_INDEX_SMOKING_PACK_COUNT (4) — the same convention
-     * SocialHistoryService follows. Bare option ids (e.g. "3") are also handled.
+     * OpenEMR stores lifestyle answers as pipe-delimited strings such as
+     * `note|type|date`, where `type` is `current<field_id>`, `quit<field_id>`,
+     * `never<field_id>` or `0`; tobacco adds an extra
+     * `note|type|date|option_id|packs` shape. The list_options option id sits at
+     * index 3 (or index 0 for a bare id such as "3").
      */
     private function resolveCodedListValue(string $raw, string $listId): string
     {
@@ -478,11 +479,6 @@ class PatientContextBuilder
         }
 
         $segments = explode('|', $raw);
-        // stash for smoking status
-        if ($listId === 'smoking_status') {
-            $GLOBALS['_tobacco_segments'] = $segments;
-            $GLOBALS['_tobacco_packs'] = trim((string) ($segments[4] ?? ''));
-        }
         $optionId = trim($segments[3] ?? '');
         if ($optionId === '' && count($segments) === 1) {
             $optionId = trim($segments[0]);
@@ -502,33 +498,69 @@ class PatientContextBuilder
             return $raw;
         }
 
-        $readable = trim((string) $option['title']);
-        if ($listId === 'smoking_status') {
-            $packsPerDay = $GLOBALS['_tobacco_packs'] ?? '';
-            $packCount = is_numeric($packsPerDay) ? $packsPerDay : '';
-            if ($packCount !== '') {
-                $readable .= ' — ' . $packCount . ' paquetes/día';
-            }
-        }
-
-        return $readable;
+        return trim((string) $option['title']);
     }
 
     /**
-     * True when every pipe-delimited segment is either empty or numeric — i.e. the
-     * value looks like raw option-id storage ("0|0|0|0|") rather than free text.
+     * Maps a parsed lifestyle status onto the English source wording. Returns an
+     * empty string for an unknown status or `none` (nothing worth emitting).
+     *
+     * The result is passed through xl(), so OpenEMR renders it in the session
+     * language while the source stays stable English (USA Hospital).
      */
-    private function isNumericPipeJunk(string $value): bool
+    private function renderLifestyleStatus(?string $status): string
     {
-        foreach (explode('|', $value) as $part) {
-            $part = trim($part);
-            if ($part !== '' && !is_numeric($part)) {
-                return false;
-            }
-        }
-        return true;
+        return match ($status) {
+            'current'        => xl('current'),
+            'quit'           => xl('quit'),
+            'never'          => xl('never'),
+            'not_applicable' => xl('not applicable'),
+            default          => '',
+        };
     }
 
+    /**
+     * Tobacco-specific status wording. Tobacco reads as a person's smoking state
+     * ("current smoker") rather than the generic lifestyle status ("current"), and
+     * is used whenever the smoking_status option title cannot be resolved.
+     */
+    private function renderTobaccoStatus(?string $status): string
+    {
+        return match ($status) {
+            'current'        => xl('current smoker'),
+            'quit'           => xl('former smoker'),
+            'never'          => xl('never smoker'),
+            'not_applicable' => xl('not applicable'),
+            default          => '',
+        };
+    }
+
+    /**
+     * Renders one "Label: value" history line.
+     *
+     * Free text is redacted through redactFreeText(); anything that still carries a
+     * pipe (raw coded storage that failed to parse) is discarded rather than leaked.
+     * Returns an empty string when there is nothing to emit.
+     */
+    private function renderHistoryItem(string $label, string $value): string
+    {
+        $value = trim($value);
+        if ($value === '' || strpos($value, '|') !== false) {
+            return '';
+        }
+
+        return xl($label) . ': ' . $this->redactFreeText($value);
+    }
+
+    /**
+     * Parses OpenEMR's lifestyle-status pipe format.
+     *
+     * Detected purely by the presence of "|", not by column name, so free text
+     * passes through untouched. Returns null when the value is not pipe-shaped.
+     *
+     * Shape: `note|type|date` for the regular lifestyle columns, and
+     * `note|type|date|smoking_status_option_id|packs_per_day` for tobacco.
+     */
     private function parseLifestylePipe(string $value): ?array
     {
         $trimmed = trim($value);
@@ -593,25 +625,25 @@ class PatientContextBuilder
         $dobStr = (string) ($row['DOB'] ?? '');
         $sex    = trim((string) ($row['sex'] ?? ''));
 
-        $ageStr = 'Edad no registrada';
+        $ageStr = xl('Age not recorded');
         if ($dobStr !== '' && $dobStr !== '0000-00-00') {
             try {
                 $dob = new DateTime($dobStr);
                 $now = new DateTime();
                 $age = $dob->diff($now)->y;
-                $ageStr = "{$age} años";
+                $ageStr = $age . ' ' . xl('years');
             } catch (\Throwable) {
-                $ageStr = 'Edad desconocida';
+                $ageStr = xl('Unknown age');
             }
         }
 
         $sexStr = match (strtolower($sex)) {
-            'female', 'f', 'femenino' => 'Femenino',
-            'male', 'm', 'masculino'  => 'Masculino',
-            default                   => $sex !== '' ? $sex : 'No especificado',
+            'female', 'f', 'femenino' => xl('Female'),
+            'male', 'm', 'masculino'  => xl('Male'),
+            default                   => $sex !== '' ? $sex : xl('Not specified'),
         };
 
-        return "### PERFIL DEL PACIENTE\n- Edad: {$ageStr}\n- Sexo: {$sexStr}\n";
+        return '### ' . xl('PATIENT PROFILE') . "\n- " . xl('Age') . ": {$ageStr}\n- " . xl('Sex') . ": {$sexStr}\n";
     }
 
     /**
@@ -635,10 +667,10 @@ class PatientContextBuilder
         }
 
         if (empty($rows)) {
-            return "### ALERGIAS CONOCIDAS\n- Sin alergias registradas activas.\n";
+            return '### ' . xl('KNOWN ALLERGIES') . "\n- " . xl('No active allergies recorded.') . "\n";
         }
 
-        $out = "### ALERGIAS CONOCIDAS\n";
+        $out = '### ' . xl('KNOWN ALLERGIES') . "\n";
         foreach ($rows as $r) {
             $title    = $this->redactFreeText(trim((string) ($r['title'] ?? '')));
             // lists.severity_al holds a severity_ccda list_option id, not free text;
@@ -651,7 +683,7 @@ class PatientContextBuilder
 
             $line = "- {$title}";
             if ($severity !== '') {
-                $line .= " (Severidad: {$severity})";
+                $line .= ' (' . xl('Severity') . ": {$severity})";
             }
             if ($comments !== '') {
                 $line .= " — {$comments}";
@@ -683,10 +715,10 @@ class PatientContextBuilder
         }
 
         if (empty($rows)) {
-            return "### PROBLEMAS ACTIVOS\n- Sin problemas médicos activos registrados.\n";
+            return '### ' . xl('ACTIVE PROBLEMS') . "\n- " . xl('No active medical problems recorded.') . "\n";
         }
 
-        $out = "### PROBLEMAS ACTIVOS\n";
+        $out = '### ' . xl('ACTIVE PROBLEMS') . "\n";
         foreach ($rows as $r) {
             $title    = $this->redactFreeText(trim((string) ($r['title'] ?? '')));
             $date     = $this->formatDate((string) ($r['begdate'] ?? ''));
@@ -694,7 +726,7 @@ class PatientContextBuilder
 
             $line = "- {$title}";
             if ($date !== '') {
-                $line .= " (Inicio: {$date})";
+                $line .= ' (' . xl('Onset') . ": {$date})";
             }
             if ($comments !== '') {
                 $line .= " — {$comments}";
@@ -737,10 +769,10 @@ class PatientContextBuilder
         }
 
         if (empty($rowsRx) && empty($rowsLists)) {
-            return "### MEDICACIÓN ACTUAL\n- Sin medicación activa registrada.\n";
+            return '### ' . xl('CURRENT MEDICATIONS') . "\n- " . xl('No active medications recorded.') . "\n";
         }
 
-        $out = "### MEDICACIÓN ACTUAL\n";
+        $out = '### ' . xl('CURRENT MEDICATIONS') . "\n";
 
         foreach ($rowsRx as $rx) {
             $drug     = $this->redactFreeText(trim((string) ($rx['drug'] ?? '')));
@@ -756,7 +788,7 @@ class PatientContextBuilder
                 $line .= " ({$interval})";
             }
             if ($date !== '') {
-                $line .= " [Recetado: {$date}]";
+                $line .= ' [' . xl('Prescribed') . ": {$date}]";
             }
             $out .= $line . "\n";
         }
@@ -773,7 +805,7 @@ class PatientContextBuilder
                 $line .= " {$instructions}";
             }
             if ($date !== '') {
-                $line .= " (Desde: {$date})";
+                $line .= ' (' . xl('Since') . ": {$date})";
             }
             if ($comments !== '') {
                 $line .= " — {$comments}";
@@ -793,11 +825,15 @@ class PatientContextBuilder
      * acts as the fallback when the service is unavailable. The two rows are merged
      * so no previously emitted field is lost.
      *
-     * Visibility: coded values are resolved to readable list_options titles via
-     * ListService before reaching the prompt. Per the official HIS layout and
-     * SocialHistoryService, the only coded column is `tobacco` (pipe-delimited
-     * `status|pack_count`, list 'smoking_status'); the remaining lifestyle columns
-     * are free text and pass through unchanged.
+     * Visibility: OpenEMR stores lifestyle answers in a coded pipe format
+     * (`note|type|date`, where `type` is `current<field_id>`, `quit<field_id>`,
+     * `never<field_id>` or `0`), so EVERY lifestyle column can carry coded storage —
+     * not just tobacco. Pipe values are detected by shape, parsed into a readable
+     * status plus note, and rendered through xl(); free text without a pipe passes
+     * through unchanged. Tobacco additionally resolves its smoking_status option id
+     * (list 'smoking_status') and pack count via ListService, but never depends on
+     * that lookup: a status-derived fallback is always available. No raw pipe value
+     * or `current`/`quit`/`never` storage token is ever emitted.
      *
      * Column names come from the real history_data schema, verified identical across
      * OpenEMR 8.2.0, 8.4.1 and the current tree. There is no `exercise`, `diet`,
@@ -837,135 +873,95 @@ class PatientContextBuilder
 
         $items = [];
 
-        // label => column. Only non-empty values are emitted.
+        // column => English label. Only non-empty values are emitted.
         $map = [
-            'Tabaco'                  => 'tobacco',
-            'Alcohol'                 => 'alcohol',
-            'Café'                    => 'coffee',
-            'Actividad física'        => 'exercise_patterns',
-            'Sueño'                   => 'sleep_patterns',
-            'Drogas recreativas'      => 'recreational_drugs',
-            'Actividades peligrosas'  => 'hazardous_activities',
-            'Consejo recibido'        => 'counseling',
-            'Antecedentes adicionales' => 'additional_history',
-            'Antecedentes madre'      => 'history_mother',
-            'Antecedentes padre'      => 'history_father',
-            'Antecedentes hermanos'   => 'history_siblings',
-            'Antecedentes hijos'      => 'history_offspring',
-            'Antecedentes cónyuge'    => 'history_spouse',
+            'tobacco'              => 'Tobacco',
+            'alcohol'              => 'Alcohol',
+            'coffee'               => 'Coffee',
+            'exercise_patterns'    => 'Physical activity',
+            'sleep_patterns'       => 'Sleep',
+            'recreational_drugs'   => 'Recreational drugs',
+            'hazardous_activities' => 'Hazardous activities',
+            'counseling'           => 'Counseling received',
+            'additional_history'   => 'Additional history',
+            'history_mother'       => 'Mother history',
+            'history_father'       => 'Father history',
+            'history_siblings'     => 'Siblings history',
+            'history_offspring'    => 'Offspring history',
+            'history_spouse'       => 'Spouse history',
         ];
 
-        // history_data columns that store a list_options option id instead of free
-        // text. Only smoking_status is coded per the official HIS layout.
+        // Lifestyle columns whose value may be a pipe-delimited coded answer. The
+        // parsing itself is shape-based (see parseLifestylePipe()); only tobacco
+        // carries the extra smoking_status option id (list 'smoking_status').
         $codedHistoryLists = [
             'tobacco' => 'smoking_status',
         ];
 
-        foreach ($map as $label => $column) {
-            if (empty($r[$column])) {
+        foreach ($map as $column => $label) {
+            if (!isset($r[$column]) || trim((string) $r[$column]) === '') {
                 continue;
             }
-            $value = trim((string) $r[$column]);
+            $value  = trim((string) $r[$column]);
             $parsed = $this->parseLifestylePipe($value);
-            if ($parsed !== null) {
-                $status = $parsed['status'];
-                if ($status === 'none' || ($status === null && $parsed['note'] === '' && empty($parsed['smoking_option_id']))) {
-                    continue;
+
+            if ($parsed === null) {
+                // Free text without a pipe: pass through unchanged (redacted only).
+                $line = $this->renderHistoryItem($label, $value);
+                if ($line !== '') {
+                    $items[] = $line;
                 }
-                if ($status === 'none') {
-                    if ($parsed['note'] === '') {
-                        continue;
-                    }
-                }
-                if (isset($codedHistoryLists[$column])) {
-                    $GLOBALS['_tobacco_segments'] = $parsed['segments'];
-                    $GLOBALS['_tobacco_packs'] = $parsed['packs'];
-                    $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
-                    $res = trim((string) $resolved);
-                    if ($this->isNumericPipeJunk($value) && $res === $value) {
-                        continue;
-                    }
-                    $pipeContent = implode('|', $parsed['segments']);
-                    if ($res === $pipeContent) {
-                        // unresolved — drop or handle per status
-                        if ($parsed['status'] === 'none') {
-                            continue;
-                        }
-                        $status = $parsed['status'];
-                        if ($status === 'current') {
-                            $res = xl('current smoker');
-                        } elseif ($status === 'quit') {
-                            $res = xl('former smoker');
-                            $quitDate = trim((string) ($parsed['segments'][2] ?? ''));
-                            if ($quitDate !== '' && $quitDate !== '0000-00-00') {
-                                $res .= ' (' . xl('quit') . ': ' . $quitDate . ')';
-                            }
-                        } elseif ($status === 'never') {
-                            $res = xl('never');
-                        } elseif ($status === 'not_applicable') {
-                            $res = xl('not applicable');
-                        } else {
-                            continue;
-                        }
-                        if ($parsed['packs'] !== '') {
-                            $res = xl('current smoker');
-                            if ($parsed['packs'] !== '') {
-                                $res .= ' — ' . $parsed['packs'] . ' ' . xl('packs/day');
-                            }
-                        }
-                    } elseif (strpos($res, '|') !== false) {
-                        continue;
-                    } else {
-                        $valueOut = $res;
-                        if ($parsed['note'] !== '') {
-                            $valueOut .= ' (' . $parsed['note'] . ')';
-                        }
-                        $items[] = $label . ': ' . $this->redactFreeText($valueOut);
-                        continue;
-                    }
-                    $valueOut = $res;
-                    if ($parsed['note'] !== '') {
-                        $valueOut .= ' (' . $parsed['note'] . ')';
-                    }
-                    $items[] = $label . ': ' . $this->redactFreeText($valueOut);
-                    continue;
-                } else {
-                    $status = $parsed['status'];
-                    $readable = '';
-                    if ($status === 'current') {
-                        $readable = xl('current');
-                    } elseif ($status === 'quit') {
-                        $readable = xl('quit');
-                    } elseif ($status === 'never') {
-                        $readable = xl('never');
-                    } elseif ($status === 'not_applicable') {
-                        $readable = xl('not applicable');
-                    } elseif ($status === 'none') {
-                        continue;
-                    }
-                    if ($readable === '') {
-                        continue;
-                    }
-                    $note = $parsed['note'];
-                    if ($note !== '') {
-                        $items[] = $label . ': ' . $this->redactFreeText($readable . ' (' . $note . ')');
-                    } else {
-                        $items[] = $label . ': ' . $this->redactFreeText($readable);
-                    }
-                    continue;
-                }
-            }
-            if (isset($codedHistoryLists[$column])) {
-                $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
-                if ($resolved === $value && $this->isNumericPipeJunk($value)) {
-                    continue;
-                }
-                $value = $resolved;
-            }
-            if ($value === '') {
                 continue;
             }
-            $items[] = $label . ': ' . $this->redactFreeText($value);
+
+            $status = $parsed['status'];
+            $note   = (string) $parsed['note'];
+
+            if (isset($codedHistoryLists[$column])) {
+                // Tobacco: prefer the resolved smoking_status title; fall back to the
+                // status-derived wording so output never depends on ListService.
+                $readable = $this->renderTobaccoStatus($status);
+                $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
+                if ($resolved !== $value && strpos($resolved, '|') === false && trim($resolved) !== '') {
+                    $readable = trim($resolved);
+                }
+                if ($readable === '') {
+                    if ($note === '') {
+                        // Unknown status and unresolvable option: never leak the raw value.
+                        continue;
+                    }
+                    $readable = $note;
+                    $note     = '';
+                }
+                if ($status === 'quit') {
+                    $quitDate = trim((string) ($parsed['segments'][2] ?? ''));
+                    if ($quitDate !== '' && $quitDate !== '0000-00-00') {
+                        $readable .= ' (' . xl('quit') . ': ' . $quitDate . ')';
+                    }
+                }
+                if (($parsed['packs'] ?? '') !== '') {
+                    $readable .= ' — ' . $parsed['packs'] . ' ' . xl('packs/day');
+                }
+                if ($note !== '') {
+                    $readable .= ' (' . $note . ')';
+                }
+            } else {
+                // Regular lifestyle column: status wording plus optional note.
+                $readable = $this->renderLifestyleStatus($status);
+                if ($readable === '') {
+                    if ($note === '') {
+                        continue;
+                    }
+                    $readable = $note;
+                } elseif ($note !== '') {
+                    $readable .= ' (' . $note . ')';
+                }
+            }
+
+            $line = $this->renderHistoryItem($label, $readable);
+            if ($line !== '') {
+                $items[] = $line;
+            }
         }
 
         // Surgical history: the history_data surgical checkboxes (appendectomy, hernia
@@ -973,29 +969,29 @@ class PatientContextBuilder
         $surgical = [];
         foreach (
             [
-                'Apendicectomía'      => 'appendectomy',
-                'Colecistectomía'     => 'cholecystestomy',
-                'Hernia repair'       => 'hernia_repair',
-                'Histerectomía'       => 'hysterectomy',
-                'Cirugía cardíaca'   => 'heart_surgery',
-                'Cirugía de cataratas' => 'cataract_surgery',
-                'Tonsilectomía'       => 'tonsillectomy',
-            ] as $label => $column
+                'appendectomy'     => 'Appendectomy',
+                'cholecystestomy'  => 'Cholecystectomy',
+                'hernia_repair'    => 'Hernia repair',
+                'hysterectomy'     => 'Hysterectomy',
+                'heart_surgery'    => 'Heart surgery',
+                'cataract_surgery' => 'Cataract surgery',
+                'tonsillectomy'    => 'Tonsillectomy',
+            ] as $column => $label
         ) {
             if (!empty($r[$column])) {
-                $surgical[] = $label;
+                $surgical[] = xl($label);
             }
         }
 
         if ($surgical !== []) {
-            $items[] = 'Antecedentes quirúrgicos: ' . implode(', ', $surgical);
+            $items[] = xl('Surgical history') . ': ' . implode(', ', $surgical);
         }
 
         if ($items === []) {
             return '';
         }
 
-        return "### ANTECEDENTES Y HÁBITOS\n- " . implode("\n- ", $items) . "\n";
+        return '### ' . xl('HISTORY AND HABITS') . "\n- " . implode("\n- ", $items) . "\n";
     }
 
     /**
@@ -1038,42 +1034,22 @@ class PatientContextBuilder
     {
         $parts = [];
         if (!empty($v['bps']) || !empty($v['bpd'])) {
-            $parts[] = "PA: {$v['bps']}/{$v['bpd']} mmHg";
+            $parts[] = xl('BP') . ": {$v['bps']}/{$v['bpd']} mmHg";
         }
         if (!empty($v['pulse'])) {
-            $pulse = (string) $v['pulse'];
-            if (is_numeric($pulse)) {
-                $pulse = number_format((float) $pulse, 2, '.', '');
-                if (substr($pulse, -3) === '.00') {
-                    $pulse = substr($pulse, 0, -3);
-                } elseif (substr($pulse, -1) === '0' && strpos($pulse, '.') !== false) {
-                    $pulse = rtrim($pulse, '0');
-                    $pulse = rtrim($pulse, '.');
-                }
-            }
-            $parts[] = "Pulso: {$pulse} lpm";
+            $parts[] = xl('Pulse') . ': ' . $this->formatVitalNumber($v['pulse']) . ' ' . xl('bpm');
         }
         if (!empty($v['temperature'])) {
-            $temp = (string) $v['temperature'];
-            if (is_numeric($temp)) {
-                $temp = number_format((float) $temp, 2, '.', '');
-                if (substr($temp, -3) === '.00') {
-                    $temp = substr($temp, 0, -3);
-                } elseif (substr($temp, -1) === '0' && strpos($temp, '.') !== false) {
-                    $temp = rtrim($temp, '0');
-                    $temp = rtrim($temp, '.');
-                }
-            }
-            $parts[] = "Temp: {$temp} °C";
+            $parts[] = xl('Temp') . ': ' . $this->formatVitalNumber($v['temperature']) . ' °C';
         }
         if (!empty($v['respiration'])) {
-            $parts[] = "FR: {$v['respiration']} rpm";
+            $parts[] = xl('RR') . ': ' . $this->formatVitalNumber($v['respiration']) . ' ' . xl('rpm');
         }
         if (!empty($v['oxygen_saturation'])) {
-            $parts[] = "SatO2: {$v['oxygen_saturation']}%";
+            $parts[] = xl('SpO2') . ': ' . $this->formatVitalNumber($v['oxygen_saturation']) . '%';
         }
         if (!empty($v['BMI'])) {
-            $parts[] = "IMC: {$v['BMI']}";
+            $parts[] = xl('BMI') . ': ' . $this->formatVitalNumber($v['BMI']);
         }
 
         if (empty($parts)) {
@@ -1081,9 +1057,31 @@ class PatientContextBuilder
         }
 
         $dateStr = $this->formatDate((string) ($v['date'] ?? ''));
-        $header  = $dateStr !== '' ? "### SIGNOS VITALES RECIENTES ({$dateStr})\n" : "### SIGNOS VITALES RECIENTES\n";
+        $header  = $dateStr !== ''
+            ? '### ' . xl('RECENT VITAL SIGNS') . " ({$dateStr})\n"
+            : '### ' . xl('RECENT VITAL SIGNS') . "\n";
 
         return $header . "- " . implode(', ', $parts) . "\n";
+    }
+
+    /**
+     * Formats a numeric vital sign with at most two decimals, trimming trailing
+     * zeros ("90.000000" -> "90", "100.400000" -> "100.4"). Non-numeric values
+     * are returned unchanged.
+     */
+    private function formatVitalNumber(mixed $value): string
+    {
+        $str = trim((string) $value);
+        if ($str === '' || !is_numeric($str)) {
+            return $str;
+        }
+
+        $formatted = number_format((float) $str, 2, '.', '');
+        if (strpos($formatted, '.') !== false) {
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+        }
+
+        return $formatted;
     }
 
     /**
@@ -1140,7 +1138,9 @@ class PatientContextBuilder
             }
 
             $dateFormatted = $this->formatDate((string) ($enc['date'] ?? ''));
-            $encHeader     = $dateFormatted !== '' ? "#### Consulta del {$dateFormatted}\n" : "#### Consulta\n";
+            $encHeader     = $dateFormatted !== ''
+                ? '#### ' . xl('Encounter of') . " {$dateFormatted}\n"
+                : '#### ' . xl('Encounter') . "\n";
 
             $noteParts = [];
             foreach ($soaps as $s) {
@@ -1151,16 +1151,16 @@ class PatientContextBuilder
 
                 $lines = [];
                 if ($subj !== '') {
-                    $lines[] = "- Subjetivo: {$subj}";
+                    $lines[] = '- ' . xl('Subjective') . ": {$subj}";
                 }
                 if ($obj !== '') {
-                    $lines[] = "- Objetivo: {$obj}";
+                    $lines[] = '- ' . xl('Objective') . ": {$obj}";
                 }
                 if ($ass !== '') {
-                    $lines[] = "- Evaluación: {$ass}";
+                    $lines[] = '- ' . xl('Assessment') . ": {$ass}";
                 }
                 if ($plan !== '') {
-                    $lines[] = "- Plan: {$plan}";
+                    $lines[] = '- ' . xl('Plan') . ": {$plan}";
                 }
 
                 if (!empty($lines)) {
@@ -1229,7 +1229,7 @@ class PatientContextBuilder
             return '';
         }
 
-        $out = "### RESULTADOS DE LABORATORIO RECIENTES\n";
+        $out = '### ' . xl('RECENT LABORATORY RESULTS') . "\n";
         foreach ($rows as $r) {
             $label = trim((string) ($r['result_text'] ?? ''));
             if ($label === '') {
@@ -1238,7 +1238,7 @@ class PatientContextBuilder
             if ($label === '') {
                 $label = trim((string) ($r['procedure_order_type'] ?? ''));
             }
-            $procName   = $this->redactFreeText($label !== '' ? $label : 'Estudio');
+            $procName   = $this->redactFreeText($label !== '' ? $label : xl('Study'));
             $resultVal  = $this->redactFreeText(trim((string) ($r['result'] ?? '')));
             $units      = trim((string) ($r['units'] ?? ''));
             $range      = trim((string) ($r['range'] ?? ''));
@@ -1250,7 +1250,7 @@ class PatientContextBuilder
                 $line .= " {$units}";
             }
             if ($range !== '') {
-                $line .= " (Ref: {$range})";
+                $line .= ' (' . xl('Ref') . ": {$range})";
             }
             if ($status !== '' && strtolower($status) !== 'final') {
                 $line .= " [{$status}]";
@@ -1258,7 +1258,7 @@ class PatientContextBuilder
             // The `abnormal` flag is the authoritative abnormal marker; status codes like
             // "final" say nothing about whether the value is out of range.
             if (!empty($r['abnormal']) && strtolower((string) $r['abnormal']) === 'abnormal') {
-                $line .= ' [ALTERADO]';
+                $line .= ' [' . xl('ABNORMAL') . ']';
             }
             if ($date !== '') {
                 $line .= " ({$date})";
@@ -1291,7 +1291,7 @@ class PatientContextBuilder
                         $label = $orderLabel;
                     }
                     if ($label === '') {
-                        $label = 'Estudio';
+                        $label = 'Study';
                     }
 
                     $entries[] = [
@@ -1315,7 +1315,7 @@ class PatientContextBuilder
         usort($entries, static fn ($a, $b) => strcmp($b['date'], $a['date']));
         $entries = array_slice($entries, 0, 15);
 
-        $out = "### RESULTADOS DE LABORATORIO RECIENTES\n";
+        $out = '### ' . xl('RECENT LABORATORY RESULTS') . "\n";
         foreach ($entries as $e) {
             $procName  = $this->redactFreeText($e['label']);
             $resultVal = $this->redactFreeText($e['value']);
@@ -1325,13 +1325,13 @@ class PatientContextBuilder
                 $line .= " {$e['units']}";
             }
             if ($e['range'] !== '') {
-                $line .= " (Ref: {$e['range']})";
+                $line .= ' (' . xl('Ref') . ": {$e['range']})";
             }
             if ($e['status'] !== '' && strtolower($e['status']) !== 'final') {
                 $line .= " [{$e['status']}]";
             }
             if ($e['abnormal'] !== '' && strtolower($e['abnormal']) === 'abnormal') {
-                $line .= ' [ALTERADO]';
+                $line .= ' [' . xl('ABNORMAL') . ']';
             }
             if ($e['date'] !== '') {
                 $line .= " ({$this->formatDate($e['date'])})";
@@ -1377,7 +1377,7 @@ class PatientContextBuilder
     }
 
     /**
-     * Renders clinical note records into the "NOTAS CLÍNICAS" section.
+     * Renders clinical note records into the "CLINICAL NOTES" section.
      *
      * @param array $notes       Note records (service shape or fallback SQL shape)
      * @param bool  $fromService Whether the rows come from ClinicalNotesService
@@ -1401,7 +1401,7 @@ class PatientContextBuilder
                 $label = trim((string) ($n['category_title'] ?? ''));
             }
             if ($label === '') {
-                $label = 'Nota clínica';
+                $label = xl('Clinical note');
             }
 
             $dateStr = trim((string) ($n['date'] ?? ''));
@@ -1427,7 +1427,7 @@ class PatientContextBuilder
         usort($entries, static fn ($a, $b) => strcmp($b['sort'], $a['sort']));
         $entries = array_slice($entries, 0, self::MAX_CLINICAL_NOTES);
 
-        return "### NOTAS CLÍNICAS\n" . implode("\n", array_column($entries, 'line')) . "\n";
+        return '### ' . xl('CLINICAL NOTES') . "\n" . implode("\n", array_column($entries, 'line')) . "\n";
     }
 
     // -------------------------------------------------------------------------
@@ -1453,7 +1453,7 @@ class PatientContextBuilder
         string $clinicalNotes,
         string $labs
     ): array {
-        $baseText = "## CONTEXTO CLÍNICO DEL PACIENTE\n\n"
+        $baseText = '## ' . xl('PATIENT CLINICAL CONTEXT') . "\n\n"
             . $demographics . "\n"
             . $allergies . "\n"
             . $problems . "\n"
@@ -1476,7 +1476,7 @@ class PatientContextBuilder
         // SOAP encounters are ordered newest-first [0 = newest, count-1 = oldest]
         // We pack newest first. If adding an encounter exceeds remaining budget, stop and mark truncated.
         if (!empty($soapEncounters)) {
-            $soapHeader = "### CONSULTAS Y EVOLUCIONES PREVIAS (SOAP)\n";
+            $soapHeader = '### ' . xl('PREVIOUS ENCOUNTERS (SOAP)') . "\n";
             $accumSoap  = '';
 
             foreach ($soapEncounters as $idx => $enc) {

@@ -8,8 +8,9 @@
  *   2. Anthropic adapter: system prompt extraction, response parsing, token counts.
  *   3. Gemini adapter: candidates extraction, safety block handling, token counts.
  *   4. Grok (xAI) adapter: endpoint default, provider identity, response extraction.
- *   5. Uniform ProviderException mapping (401/403, 429, timeout, safety block).
- *   6. Security validations: HTTPS-only, SSRF prevention on private/link-local IPs, embedded credential rejection.
+ *   5. Z.ai (GLM) adapter: endpoint default, provider identity, dotted API key, response extraction.
+ *   6. Uniform ProviderException mapping (401/403, 429, timeout, safety block).
+ *   7. Security validations: HTTPS-only, SSRF prevention on private/link-local IPs, embedded credential rejection.
  *
  * Compatibility: OpenEMR 8.2.0+ (PHP 8.2 compatible).
  */
@@ -35,6 +36,7 @@ use OpenEMR\Modules\AiAssistant\Provider\Adapter\AnthropicAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\GeminiAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\GrokAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Adapter\OpenAiAdapter;
+use OpenEMR\Modules\AiAssistant\Provider\Adapter\ZaiAdapter;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderAuthenticationException;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderException;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderInvalidResponseException;
@@ -113,6 +115,24 @@ class TestableGrokAdapter extends GrokAdapter
     }
 }
 
+class TestableZaiAdapter extends ZaiAdapter
+{
+    public array $lastExecuted = [];
+    public ?array $mockResponse = null;
+
+    protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
+    {
+        $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody, 'timeout' => $customTimeout];
+        if ($this->mockResponse !== null) {
+            if (isset($this->mockResponse['exception'])) {
+                throw $this->mockResponse['exception'];
+            }
+            return $this->mockResponse;
+        }
+        return ['statusCode' => 200, 'body' => '{}', 'headers' => []];
+    }
+}
+
 class ProviderSimulationRunner
 {
     private int $passed = 0;
@@ -127,6 +147,7 @@ class ProviderSimulationRunner
         $this->testAnthropicSimulation();
         $this->testGeminiSimulation();
         $this->testGrokSimulation();
+        $this->testZaiSimulation();
         $this->testGeminiSafetyBlocks();
         $this->testUniformExceptions();
         $this->testTimeoutForwarding();
@@ -365,6 +386,70 @@ class ProviderSimulationRunner
             $ssrfBlocked = true;
         }
         $this->assert('Grok: Private/loopback base URL rejected (SSRF guard inherited)', $ssrfBlocked);
+    }
+
+    private function testZaiSimulation(): void
+    {
+        // Default construction must target the Z.ai endpoint and report the zai provider id
+        $defaults = new TestableZaiAdapter('abc12345.abcdefghijkl');
+        $this->assert('Zai: Default provider identifier is zai', $defaults->getProviderName() === 'zai');
+
+        $adapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4-flash', 0.2, 4096);
+        $adapter->mockResponse = [
+            'statusCode' => 200,
+            'body' => json_encode([
+                'id' => 'chatcmpl-zai1234',
+                'object' => 'chat.completion',
+                'model' => 'glm-4-flash',
+                'choices' => [
+                    [
+                        'index' => 0,
+                        'message' => ['role' => 'assistant', 'content' => '{"subjective":"ok","objective":"","assessment":"","plan":""}'],
+                        'finish_reason' => 'stop',
+                    ],
+                ],
+                'usage' => [
+                    'prompt_tokens' => 42,
+                    'completion_tokens' => 18,
+                    'total_tokens' => 60,
+                ],
+            ]),
+            'headers' => ['content-type' => 'application/json'],
+        ];
+
+        $resp = $adapter->generate([
+            ['role' => 'system', 'content' => 'You are a triage assistant.'],
+            ['role' => 'user', 'content' => 'Patient reports headache.'],
+        ]);
+
+        $this->assert('Zai: Extracted text matches', $resp->text === '{"subjective":"ok","objective":"","assessment":"","plan":""}');
+        $this->assert('Zai: Token usage in matches', $resp->tokensIn === 42);
+        $this->assert('Zai: Token usage out matches', $resp->tokensOut === 18);
+        $this->assert('Zai: Total tokens matches', $resp->getTotalTokens() === 60);
+        $this->assert('Zai: Provider identifier is zai', $adapter->getProviderName() === 'zai');
+        $this->assert('Zai: Authorization Bearer header sent', ($adapter->lastExecuted['headers']['Authorization'] ?? '') === 'Bearer abc12345.abcdefghijkl');
+        $this->assert('Zai: API key NOT present in URL', !str_contains($adapter->lastExecuted['url'], 'abc12345.abcdefghijkl'));
+        $this->assert(
+            'Zai: Requests the Z.ai paas/v4 chat completions endpoint',
+            $adapter->lastExecuted['url'] === 'https://api.z.ai/api/paas/v4/chat/completions'
+        );
+
+        $body = json_decode($adapter->lastExecuted['body'], true);
+        $this->assert('Zai: Model sent in payload', ($body['model'] ?? '') === 'glm-4-flash');
+        $this->assert('Zai: Max tokens sent in payload', ($body['max_tokens'] ?? 0) === 4096);
+        $this->assert('Zai: System role preserved in messages', ($body['messages'][0]['role'] ?? '') === 'system');
+
+        // Provider name flows into the audit trail, so it must never leak as 'openai'
+        $this->assert('Zai: Provider name distinct from openai', $adapter->getProviderName() !== 'openai');
+
+        // SSRF guard must be inherited: private/loopback base URLs are refused
+        $ssrfBlocked = false;
+        try {
+            new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4-flash', 0.2, 4096, 'http://127.0.0.1:8080/v1');
+        } catch (\InvalidArgumentException) {
+            $ssrfBlocked = true;
+        }
+        $this->assert('Zai: Private/loopback base URL rejected (SSRF guard inherited)', $ssrfBlocked);
     }
 
     private function testGeminiSafetyBlocks(): void
