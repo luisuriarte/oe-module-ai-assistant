@@ -1473,16 +1473,19 @@ class PatientContextBuilder
         $truncated  = false;
         $encsAdded  = 0;
 
-        // SOAP encounters are ordered newest-first [0 = newest, count-1 = oldest]
-        // We pack newest first. If adding an encounter exceeds remaining budget, stop and mark truncated.
+        // SOAP encounters are ordered newest-first [0 = newest, count-1 = oldest].
+        // We pack newest first. The section header counts against the remaining
+        // budget, and the first encounter that no longer fits stops the loop, so the
+        // oldest encounters are dropped first (FIFO priority).
         if (!empty($soapEncounters)) {
             $soapHeader = '### ' . xl('PREVIOUS ENCOUNTERS (SOAP)') . "\n";
+            $headerCost = self::estimateTokens($soapHeader);
             $accumSoap  = '';
 
-            foreach ($soapEncounters as $idx => $enc) {
-                $cost = $enc['tokens'];
-                if (self::estimateTokens($accumSoap . $enc['text']) <= $remaining) {
-                    $accumSoap .= $enc['text'] . "\n";
+            foreach ($soapEncounters as $enc) {
+                $candidate = $accumSoap . $enc['text'] . "\n";
+                if ($headerCost + self::estimateTokens($candidate) <= $remaining) {
+                    $accumSoap = $candidate;
                     $encsAdded++;
                 } else {
                     $truncated = true;

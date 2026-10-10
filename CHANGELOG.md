@@ -21,6 +21,10 @@ All notable changes to **oe-module-ai-assistant**.
 - **Unified JSON error contract (M7)**: routing-level and transcribe errors now return a
   translatable `error` plus a fixed `error_type`/`error_code`; `public/index.php` converts
   any uncaught `Throwable` into a JSON 500 that never leaks the exception or provider payload.
+- **Z.ai (GLM) provider** — new `Provider\Adapter\ZaiAdapter` extending `OpenAiAdapter`
+  (OpenAI-compatible). Selectable as `zai` on the settings page with defaults
+  `https://api.z.ai/api/paas/v4`, model `glm-4-flash`, temperature `0.2`, max tokens `4096`;
+  API key stored encrypted as `zai_api_key`.
 - `LICENSE` (GNU GPL v3, mirrored from the OpenEMR repository) and this `CHANGELOG.md`.
 
 ### Changed
@@ -47,7 +51,7 @@ All notable changes to **oe-module-ai-assistant**.
 | M0 | Inspection report, version detection, SOAP hook analysis | Done |
 | M1 | Module skeleton, settings page, install/uninstall | Done |
 | M2 | TranscriptionClient, upload endpoint, validations | Done |
-| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok), encrypted keys | Done |
+| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok / Z.ai), encrypted keys | Done |
 | M4 | PatientContextBuilder, de-identification | Done |
 | M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Done |
 | M6 | Layer 2: patient chat panel | Done |

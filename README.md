@@ -42,7 +42,7 @@ oe-module-ai-assistant/
 ├── src/
 │   ├── Settings/SettingsManager    Key/value settings store (CryptoGen for API keys)
 │   ├── Transcription/              HTTP client for whisper.cpp
-│   ├── Provider/                   AiProviderInterface + OpenAI / Anthropic / Gemini / Grok adapters
+│   ├── Provider/                   AiProviderInterface + OpenAI / Anthropic / Gemini / Grok / Z.ai adapters
 │   ├── Context/PatientContextBuilder  Minimised, de-identified chart context
 │   ├── Draft/SoapDraftGenerator    Transcript + context → validated S/O/A/P JSON
 │   ├── Service/ChatService         Patient-scoped conversation
@@ -82,7 +82,7 @@ oe-module-ai-assistant/
 | PHP | ≥ 8.2.0 (8.3+ on OpenEMR 8.4.x) |
 | whisper.cpp server | Running on `http://127.0.0.1:8178` (local only) |
 | Shared temp dir | `sys_get_temp_dir()` must be the same for every PHP worker (flock + job files). With `PrivateTmp=yes` (systemd) or per-pool chroots, point `TMPDIR` at a common path. |
-| AI provider | OpenAI / Anthropic / Gemini / Grok (xAI) API key |
+| AI provider | OpenAI / Anthropic / Gemini / Grok (xAI) / Z.ai (GLM) API key |
 
 ### Steps
 
@@ -120,7 +120,7 @@ oe-module-ai-assistant/
 | `whisper_url` | `http://127.0.0.1:8178` | whisper.cpp server base URL |
 | `whisper_timeout` | `60` | Request timeout in seconds |
 | `whisper_max_audio_sec` | `180` | Maximum audio length (3 min) |
-| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` |
+| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` / `zai` |
 | `openai_base_url` | `https://api.openai.com/v1` | Supports self-hosted / compatible servers |
 | `openai_model` | `gpt-4o` | Model name (free text) |
 | `openai_temperature` | `0.2` | 0.0 – 2.0 |
@@ -135,6 +135,11 @@ oe-module-ai-assistant/
 | `grok_temperature` | `0.2` | 0.0 – 2.0 |
 | `grok_max_tokens` | `2048` | Max output tokens |
 | `grok_api_key` | — | Encrypted at rest |
+| `zai_base_url` | `https://api.z.ai/api/paas/v4` | Z.ai (Zhipu) endpoint (OpenAI-compatible) |
+| `zai_model` | `glm-4-flash` | Any model id served to your key |
+| `zai_temperature` | `0.2` | 0.0 – 2.0 |
+| `zai_max_tokens` | `4096` | Max output tokens |
+| `zai_api_key` | — | Encrypted at rest |
 | `context_num_encounters` | `5` | Past SOAP encounters sent as context |
 | `context_token_budget` | `4000` | Max tokens for patient context |
 | `context_include_labs` | `0` | Send recent lab results |
@@ -182,7 +187,7 @@ oe-module-ai-assistant/
 | M0 | Inspection report, version detection, SOAP hook analysis | Done |
 | M1 | Module skeleton, settings page, install/uninstall | Done |
 | M2 | TranscriptionClient, upload endpoint, validations | Done |
-| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok), encrypted keys | Done |
+| M3 | Provider layer (OpenAI / Anthropic / Gemini / Grok / Z.ai), encrypted keys | Done |
 | M4 | PatientContextBuilder, de-identification | Done |
 | M5 | Layer 1 UI: dictation, transcript editor, SOAP field fill | Done |
 | M6 | Layer 2: patient chat panel | Done |

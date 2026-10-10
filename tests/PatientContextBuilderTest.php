@@ -694,6 +694,8 @@ class PatientContextBuilderTest
         $this->assert(str_contains($context, 'Newest note content.'), 'Newest encounter is retained under budget constraints');
         $this->assert(!str_contains($context, 'Oldest note content that must drop first.'), 'Oldest encounter is truncated first (FIFO priority)');
         $this->assert(str_contains($context, 'Penicillin'), 'Core clinical sections (allergies) are preserved');
+        $this->assert($res['truncated'] === true, 'Context is flagged truncated when an encounter is dropped');
+        $this->assert($res['estimated_tokens'] <= 250, 'Assembled context never exceeds the configured token budget');
     }
 
     public function testRelativeDatesFormatting(): void

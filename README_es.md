@@ -42,7 +42,7 @@ oe-module-ai-assistant/
 ├── src/
 │   ├── Settings/SettingsManager    Almacén de configuración (CryptoGen para API keys)
 │   ├── Transcription/              Cliente HTTP para whisper.cpp
-│   ├── Provider/                   AiProviderInterface + adaptadores OpenAI / Anthropic / Gemini / Grok
+│   ├── Provider/                   AiProviderInterface + adaptadores OpenAI / Anthropic / Gemini / Grok / Z.ai
 │   ├── Context/PatientContextBuilder  Contexto clínico minimizado y desidentificado
 │   ├── Draft/SoapDraftGenerator    Transcripción + contexto → JSON S/O/A/P validado
 │   ├── Service/ChatService         Conversación con alcance por paciente
@@ -82,7 +82,7 @@ oe-module-ai-assistant/
 | PHP | ≥ 8.2.0 (8.3+ en OpenEMR 8.4.x) |
 | Servidor whisper.cpp | Corriendo en `http://127.0.0.1:8178` (solo local) |
 | Directorio temporal compartido | `sys_get_temp_dir()` debe ser el mismo para todos los workers PHP (flock + archivos de trabajo). Con `PrivateTmp=yes` (systemd) o chroots por pool, apunte `TMPDIR` a una ruta común. |
-| Proveedor de IA | Clave API de OpenAI / Anthropic / Gemini / Grok (xAI) |
+| Proveedor de IA | Clave API de OpenAI / Anthropic / Gemini / Grok (xAI) / Z.ai (GLM) |
 
 ### Pasos
 
@@ -120,7 +120,7 @@ oe-module-ai-assistant/
 | `whisper_url` | `http://127.0.0.1:8178` | URL base del servidor whisper.cpp |
 | `whisper_timeout` | `60` | Tiempo de espera en segundos |
 | `whisper_max_audio_sec` | `180` | Duración máxima del audio (3 min) |
-| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` |
+| `active_provider` | `openai` | `openai` / `anthropic` / `gemini` / `grok` / `zai` |
 | `openai_base_url` | `https://api.openai.com/v1` | Compatible con servidores auto-alojados |
 | `openai_model` | `gpt-4o` | Nombre del modelo (texto libre) |
 | `openai_temperature` | `0.2` | 0.0 – 2.0 |
@@ -135,6 +135,11 @@ oe-module-ai-assistant/
 | `grok_temperature` | `0.2` | 0.0 – 2.0 |
 | `grok_max_tokens` | `2048` | Tokens máximos de salida |
 | `grok_api_key` | — | Cifrada en reposo |
+| `zai_base_url` | `https://api.z.ai/api/paas/v4` | Endpoint Z.ai (Zhipu), compatible con OpenAI |
+| `zai_model` | `glm-4-flash` | Cualquier id de modelo disponible para tu clave |
+| `zai_temperature` | `0.2` | 0.0 – 2.0 |
+| `zai_max_tokens` | `4096` | Tokens máximos de salida |
+| `zai_api_key` | — | Cifrada en reposo |
 | `context_num_encounters` | `5` | Consultas SOAP anteriores incluidas en el contexto |
 | `context_token_budget` | `4000` | Tokens máximos para el contexto del paciente |
 | `context_include_labs` | `0` | Incluir resultados de laboratorio recientes |
@@ -182,7 +187,7 @@ oe-module-ai-assistant/
 | M0 | Informe de inspección, detección de versión, análisis del hook SOAP | Completado |
 | M1 | Esqueleto del módulo, página de configuración, instalar/desinstalar | Completado |
 | M2 | TranscriptionClient, endpoint de subida, validaciones | Completado |
-| M3 | Capa de proveedores (OpenAI / Anthropic / Gemini / Grok), claves cifradas | Completado |
+| M3 | Capa de proveedores (OpenAI / Anthropic / Gemini / Grok / Z.ai), claves cifradas | Completado |
 | M4 | PatientContextBuilder, desidentificación | Completado |
 | M5 | UI Capa 1: dictado, editor de transcripción, relleno de campos SOAP | Completado |
 | M6 | Capa 2: panel de chat del paciente | Completado |
