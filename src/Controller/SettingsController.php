@@ -600,7 +600,17 @@ class SettingsController
             return;
         }
 
-        $pid = (int) ($_POST['pid'] ?? 0);
+        $pubpid = trim((string) ($_POST['pubpid'] ?? $_POST['pid'] ?? ''));
+        if ($pubpid === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => xlt('Invalid patient ID.')]);
+            return;
+        }
+        $pid = 0;
+        $rows = sqlQuery("SELECT pid FROM patient_data WHERE pubpid = ? LIMIT 1", [$pubpid]);
+        if (!empty($rows) && (int) ($rows['pid'] ?? 0) > 0) {
+            $pid = (int) ($rows['pid']);
+        }
         if ($pid <= 0) {
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => xlt('Invalid patient ID.')]);
@@ -647,6 +657,7 @@ class SettingsController
             echo json_encode([
                 'ok'               => true,
                 'pid'              => $pid,
+                'pubpid'           => $pubpid,
                 'context'          => $contextText,
                 'estimated_tokens' => $contextResult['estimated_tokens'],
                 'truncated'        => $contextResult['truncated'],

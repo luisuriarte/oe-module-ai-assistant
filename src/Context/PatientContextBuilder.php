@@ -866,11 +866,98 @@ class PatientContextBuilder
                 continue;
             }
             $value = trim((string) $r[$column]);
+            $parsed = $this->parseLifestylePipe($value);
+            if ($parsed !== null) {
+                $status = $parsed['status'];
+                if ($status === 'none' || ($status === null && $parsed['note'] === '' && empty($parsed['smoking_option_id']))) {
+                    continue;
+                }
+                if ($status === 'none') {
+                    if ($parsed['note'] === '') {
+                        continue;
+                    }
+                }
+                if (isset($codedHistoryLists[$column])) {
+                    $GLOBALS['_tobacco_segments'] = $parsed['segments'];
+                    $GLOBALS['_tobacco_packs'] = $parsed['packs'];
+                    $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
+                    $res = trim((string) $resolved);
+                    if ($this->isNumericPipeJunk($value) && $res === $value) {
+                        continue;
+                    }
+                    $pipeContent = implode('|', $parsed['segments']);
+                    if ($res === $pipeContent) {
+                        // unresolved — drop or handle per status
+                        if ($parsed['status'] === 'none') {
+                            continue;
+                        }
+                        $status = $parsed['status'];
+                        if ($status === 'current') {
+                            $res = xl('current smoker');
+                        } elseif ($status === 'quit') {
+                            $res = xl('former smoker');
+                            $quitDate = trim((string) ($parsed['segments'][2] ?? ''));
+                            if ($quitDate !== '' && $quitDate !== '0000-00-00') {
+                                $res .= ' (' . xl('quit') . ': ' . $quitDate . ')';
+                            }
+                        } elseif ($status === 'never') {
+                            $res = xl('never');
+                        } elseif ($status === 'not_applicable') {
+                            $res = xl('not applicable');
+                        } else {
+                            continue;
+                        }
+                        if ($parsed['packs'] !== '') {
+                            $res = xl('current smoker');
+                            if ($parsed['packs'] !== '') {
+                                $res .= ' — ' . $parsed['packs'] . ' ' . xl('packs/day');
+                            }
+                        }
+                    } elseif (strpos($res, '|') !== false) {
+                        continue;
+                    } else {
+                        $valueOut = $res;
+                        if ($parsed['note'] !== '') {
+                            $valueOut .= ' (' . $parsed['note'] . ')';
+                        }
+                        $items[] = $label . ': ' . $this->redactFreeText($valueOut);
+                        continue;
+                    }
+                    $valueOut = $res;
+                    if ($parsed['note'] !== '') {
+                        $valueOut .= ' (' . $parsed['note'] . ')';
+                    }
+                    $items[] = $label . ': ' . $this->redactFreeText($valueOut);
+                    continue;
+                } else {
+                    $status = $parsed['status'];
+                    $readable = '';
+                    if ($status === 'current') {
+                        $readable = xl('current');
+                    } elseif ($status === 'quit') {
+                        $readable = xl('quit');
+                    } elseif ($status === 'never') {
+                        $readable = xl('never');
+                    } elseif ($status === 'not_applicable') {
+                        $readable = xl('not applicable');
+                    } elseif ($status === 'none') {
+                        continue;
+                    }
+                    if ($readable === '') {
+                        continue;
+                    }
+                    $note = $parsed['note'];
+                    if ($note !== '') {
+                        $items[] = $label . ': ' . $this->redactFreeText($readable . ' (' . $note . ')');
+                    } else {
+                        $items[] = $label . ': ' . $this->redactFreeText($readable);
+                    }
+                    continue;
+                }
+            }
             if (isset($codedHistoryLists[$column])) {
                 $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
                 if ($resolved === $value && $this->isNumericPipeJunk($value)) {
-                    // Raw coded storage (e.g. "0|0|0|0|") with no resolvable title —
-                    // never leak option ids into the prompt.
                     continue;
                 }
                 $value = $resolved;

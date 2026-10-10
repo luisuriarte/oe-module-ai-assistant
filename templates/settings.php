@@ -550,8 +550,8 @@ use OpenEMR\Core\Header;
 
             <div class="form-row align-items-end mb-3">
                 <div class="col-md-3 form-group mb-0">
-                    <label for="preview_patient_id"><strong><?php echo xlt('Patient ID (PID):'); ?></strong></label>
-                    <input type="number" min="1" class="form-control" id="preview_patient_id" placeholder="<?php echo attr(xlt('e.g. 1')); ?>" value="1">
+                    <label for="preview_patient_id"><strong><?php echo xlt('Patient ID (PID) / External ID:'); ?></strong></label>
+                    <input type="text" class="form-control" id="preview_patient_id" placeholder="<?php echo attr(xlt('e.g. 1')); ?>" value="1">
                 </div>
                 <div class="col-md-5 form-group mb-0">
                     <button type="button" class="btn btn-success" id="btn-preview-context">
@@ -932,8 +932,8 @@ use OpenEMR\Core\Header;
 
     if (btnPreview && inputPid) {
         btnPreview.addEventListener('click', function () {
-            const pid = parseInt(inputPid.value, 10);
-            if (isNaN(pid) || pid <= 0) {
+            const pubpid = inputPid.value.trim();
+            if (pubpid === '') {
                 alert('<?php echo xlt('Please enter a valid Patient ID.'); ?>');
                 return;
             }
@@ -949,7 +949,7 @@ use OpenEMR\Core\Header;
 
             const formData = new FormData();
             formData.append('csrf_token_form', csrfToken);
-            formData.append('pid', pid);
+            formData.append('pubpid', pubpid);
 
             fetch(publicEndpoint + '?action=preview_context&site=' + encodeURIComponent(siteId), {
                 method: 'POST',
