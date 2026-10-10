@@ -224,6 +224,13 @@ class TranscribeController
             return;
         }
 
+        // Metadata-only diagnostic (no clinical content): lets operators correlate an
+        // "[MÚSICA]"-type transcript with the exact byte size that reached the server.
+        $this->logger->info(
+            '[AiAssistant] transcribe_submit accepted: bytes=' . $fileSize
+            . ' test_mode=' . ($isTest ? '1' : '0')
+        );
+
         // 5. Concurrency Control: Exclusive non-blocking flock() on host-shared lock file
         // Keyed by SHA1 of the normalized Whisper URL so all sites/instances sharing this server synchronize
         $lockFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'oe_whisper_' . sha1($normalizedWhisperUrl) . '.lock';
@@ -531,6 +538,14 @@ class TranscribeController
                     $jobMeta['status']      = 'completed';
                     $jobMeta['duration_ms'] = $result['duration_ms'];
                     $this->saveJobMeta($jobDir, $jobId, $jobMeta);
+
+                    // Metadata-only diagnostic (no transcript content): a suspiciously
+                    // short duration or char count points to an empty/silent upload.
+                    $this->logger->info(sprintf(
+                        '[AiAssistant] transcription completed: chars=%d duration_ms=%d',
+                        strlen($result['text']),
+                        $result['duration_ms']
+                    ));
 
                     // Metadata-only audit logging
                     $provider = $isTest ? 'whisper (test)' : 'whisper';
