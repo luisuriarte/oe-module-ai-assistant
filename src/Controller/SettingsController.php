@@ -24,6 +24,7 @@ use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
+use OpenEMR\Modules\AiAssistant\Draft\SoapDraftGenerator;
 use OpenEMR\Modules\AiAssistant\Provider\ProviderFactory;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
@@ -349,6 +350,10 @@ class SettingsController
         // Count of audit inserts that could not be written, so a broken audit trail is
         // visible from the admin UI instead of failing silently.
         $auditFailures = AuditLogger::failureCount();
+
+        // Built-in default shown as a read-only preview next to the guidance textarea,
+        // so the admin can see exactly what is used when the field is empty.
+        $defaultSectionGuidance = SoapDraftGenerator::DEFAULT_SECTION_GUIDANCE;
 
         // Include the settings template
         $templatePath = __DIR__ . '/../../templates/settings.php';

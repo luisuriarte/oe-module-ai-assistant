@@ -27,6 +27,11 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 - Also considers the SOAP note currently open in the editor, even before it is saved: the panel sends the four fields with each question and they are rendered as an additional **current note** section (redacted and size-capped exactly like the stored notes).
 - Conversation history lives in the browser tab only: nothing is stored in the database, in the PHP session, or in any browser storage. The history is sent with each question and re-bounded server-side; a client-injected "system" turn is rejected so the model instructions cannot be rewritten.
 
+### SOAP prompt customization
+- **Section content guidance** (`soap_section_guidance`): extra instructions placed in the draft system prompt after the core safety rules, describing what belongs in each SOAP section. When the field is empty, a built-in English default is used. A non-empty value replaces the default in the same position; the clinical safety rules always take precedence.
+- **Per-provider additional instructions** (`<provider>_prompt_extra`, e.g. `openai_prompt_extra`): appended to the system prompt after the guidance, for the active provider only. They are subordinate to the clinical safety rules.
+- Both are edited on the settings page. The built-in default is shown there as a read-only preview so the admin can see exactly what is used when the field is empty.
+
 ---
 
 ## Architecture
@@ -147,6 +152,12 @@ oe-module-ai-assistant/
 | `context_token_budget` | `4000` | Max tokens for patient context |
 | `context_include_labs` | `0` | Send recent lab results |
 | `output_language` | `es` | Draft language: `es` = Spanish, `en` = English |
+| `soap_section_guidance` | *(built-in default)* | Draft system-prompt section guidance; empty = built-in default |
+| `openai_prompt_extra` | — | Extra system-prompt instructions for OpenAI (subordinate to the safety rules) |
+| `anthropic_prompt_extra` | — | Extra system-prompt instructions for Anthropic |
+| `gemini_prompt_extra` | — | Extra system-prompt instructions for Gemini |
+| `grok_prompt_extra` | — | Extra system-prompt instructions for Grok |
+| `zai_prompt_extra` | — | Extra system-prompt instructions for Z.ai |
 | `chat_enabled` | `0` | Enable Layer 2 chat panel |
 | `provider_allow_private_hosts` | `0` | Allow loopback/private API endpoints (self-hosted models) |
 | `audit_retention_days` | `90` | Days to keep audit log rows |

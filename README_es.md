@@ -27,6 +27,11 @@ Módulo personalizado de OpenEMR que ayuda a los médicos a redactar notas SOAP 
 - También tiene en cuenta la nota SOAP abierta en el editor, incluso antes de guardarla: el panel envía los cuatro campos con cada pregunta y se renderizan como una sección adicional de **nota actual** (redactada y con tope de tamaño igual que las notas guardadas).
 - El historial de conversación vive solo en la pestaña del navegador: no se guarda en la base de datos, en la sesión PHP ni en ningún almacenamiento del navegador. El historial viaja con cada pregunta y el servidor lo vuelve a acotar; además se rechaza cualquier turno "system" inyectado por el cliente para que no se puedan reescribir las instrucciones del modelo.
 
+### Personalización del prompt SOAP
+- **Guía de contenido de secciones** (`soap_section_guidance`): instrucciones adicionales que se colocan en el system prompt del borrador después de las reglas de seguridad, describiendo qué corresponde a cada sección SOAP. Si el campo está vacío, se usa un valor predeterminado integrado en inglés. Un valor no vacío reemplaza el predeterminado en la misma posición; las reglas de seguridad clínica siempre tienen prioridad.
+- **Instrucciones adicionales por proveedor** (`<proveedor>_prompt_extra`, p. ej. `openai_prompt_extra`): se agregan al system prompt después de la guía, solo para el proveedor activo. Quedan subordinadas a las reglas de seguridad clínica.
+- Ambas se editan en la página de configuración. El valor predeterminado integrado se muestra allí como vista previa de solo lectura para que el administrador vea exactamente qué se usa cuando el campo está vacío.
+
 ---
 
 ## Arquitectura
@@ -147,6 +152,12 @@ oe-module-ai-assistant/
 | `context_token_budget` | `4000` | Tokens máximos para el contexto del paciente |
 | `context_include_labs` | `0` | Incluir resultados de laboratorio recientes |
 | `output_language` | `es` | Idioma del borrador: `es` = Español, `en` = Inglés |
+| `soap_section_guidance` | *(predeterminado integrado)* | Guía de secciones del system prompt; vacío = valor predeterminado integrado |
+| `openai_prompt_extra` | — | Instrucciones adicionales del system prompt para OpenAI (subordinadas a las reglas de seguridad) |
+| `anthropic_prompt_extra` | — | Instrucciones adicionales del system prompt para Anthropic |
+| `gemini_prompt_extra` | — | Instrucciones adicionales del system prompt para Gemini |
+| `grok_prompt_extra` | — | Instrucciones adicionales del system prompt para Grok |
+| `zai_prompt_extra` | — | Instrucciones adicionales del system prompt para Z.ai |
 | `chat_enabled` | `0` | Habilitar panel de chat (Capa 2) |
 | `provider_allow_private_hosts` | `0` | Permitir endpoints API en loopback/privados (modelos auto-alojados) |
 | `audit_retention_days` | `90` | Días de retención del registro de auditoría |

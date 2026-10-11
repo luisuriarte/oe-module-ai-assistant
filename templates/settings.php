@@ -245,6 +245,13 @@ use OpenEMR\Core\Header;
                             </div>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="openai_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
+                        <textarea class="form-control" id="openai_prompt_extra" name="openai_prompt_extra" rows="2"><?php echo text($current['openai_prompt_extra'] ?? ''); ?></textarea>
+                        <small class="form-text text-muted">
+                            <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
+                        </small>
+                    </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="openai">
                         <?php echo xlt('Test OpenAI Connection'); ?>
                     </button>
@@ -282,6 +289,13 @@ use OpenEMR\Core\Header;
                                    autocomplete="new-password">
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="anthropic_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
+                        <textarea class="form-control" id="anthropic_prompt_extra" name="anthropic_prompt_extra" rows="2"><?php echo text($current['anthropic_prompt_extra'] ?? ''); ?></textarea>
+                        <small class="form-text text-muted">
+                            <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
+                        </small>
+                    </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="anthropic">
                         <?php echo xlt('Test Anthropic Connection'); ?>
                     </button>
@@ -318,6 +332,13 @@ use OpenEMR\Core\Header;
                                    placeholder="<?php echo attr($keyStatus['gemini_api_key'] ? xlt('Leave blank to keep existing key') : xlt('Enter API key')); ?>"
                                    autocomplete="new-password">
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="gemini_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
+                        <textarea class="form-control" id="gemini_prompt_extra" name="gemini_prompt_extra" rows="2"><?php echo text($current['gemini_prompt_extra'] ?? ''); ?></textarea>
+                        <small class="form-text text-muted">
+                            <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
+                        </small>
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="gemini">
                         <?php echo xlt('Test Gemini Connection'); ?>
@@ -362,6 +383,13 @@ use OpenEMR\Core\Header;
                             <small class="form-text text-muted"><?php echo xlt('Never stored in logs or sent to the browser.'); ?></small>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="grok_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
+                        <textarea class="form-control" id="grok_prompt_extra" name="grok_prompt_extra" rows="2"><?php echo text($current['grok_prompt_extra'] ?? ''); ?></textarea>
+                        <small class="form-text text-muted">
+                            <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
+                        </small>
+                    </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="grok">
                         <?php echo xlt('Test Grok Connection'); ?>
                     </button>
@@ -404,6 +432,13 @@ use OpenEMR\Core\Header;
                                    autocomplete="new-password">
                             <small class="form-text text-muted"><?php echo xlt('Never stored in logs or sent to the browser.'); ?></small>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="zai_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
+                        <textarea class="form-control" id="zai_prompt_extra" name="zai_prompt_extra" rows="2"><?php echo text($current['zai_prompt_extra'] ?? ''); ?></textarea>
+                        <small class="form-text text-muted">
+                            <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
+                        </small>
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary btn-test-provider" data-provider="zai">
                         <?php echo xlt('Test Z.ai Connection'); ?>
@@ -452,6 +487,24 @@ use OpenEMR\Core\Header;
                             <?php echo xlt('Include recent lab results (off by default)'); ?>
                         </label>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== SOAP SECTION CONTENT GUIDANCE ==================== -->
+        <div class="ai-settings-section card">
+            <div class="card-header"><?php echo xlt('SOAP Section Content Guidance'); ?></div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label for="soap_section_guidance"><?php echo xlt('Section content guidance'); ?></label>
+                    <textarea class="form-control" id="soap_section_guidance" name="soap_section_guidance" rows="7"><?php echo text($current['soap_section_guidance'] ?? ''); ?></textarea>
+                    <small class="form-text text-muted">
+                        <?php echo xlt('Extra guidance sent with the SOAP draft prompt. Leave empty to use the built-in default shown below.'); ?>
+                    </small>
+                </div>
+                <div class="form-group mb-0">
+                    <label for="soap_section_guidance_default"><?php echo xlt('Built-in default (used when the field is empty)'); ?></label>
+                    <textarea class="form-control" id="soap_section_guidance_default" rows="7" readonly><?php echo text($defaultSectionGuidance); ?></textarea>
                 </div>
             </div>
         </div>

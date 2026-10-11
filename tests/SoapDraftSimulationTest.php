@@ -35,8 +35,21 @@ use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class MockSettingsManager extends SettingsManager
 {
-    public function __construct() {}
-    public function get(string $key, mixed $default = null): mixed { return $default; }
+    /** @var array<string, string> Per-key overrides; any other key returns its default. */
+    private array $overrides;
+
+    /**
+     * @param array<string, string> $overrides
+     */
+    public function __construct(array $overrides = [])
+    {
+        $this->overrides = $overrides;
+    }
+
+    public function get(string $key, mixed $default = null): mixed
+    {
+        return $this->overrides[$key] ?? $default;
+    }
 }
 
 /**
@@ -91,6 +104,7 @@ class SoapDraftSimulationTest
         $this->testDraftResponseWithHtmlAndScriptTags();
         $this->testTranscriptWithPromptInjection();
         $this->testDrugNameCorrectionAgainstPatientContext();
+        $this->testSectionContentGuidanceDefaultAndOverride();
 
         echo "\n------------------------------------------------------------\n";
         echo "Resultados: {$this->passed} pasaron, {$this->failed} fallaron.\n";
@@ -295,6 +309,95 @@ class SoapDraftSimulationTest
         );
         $this->assert(str_contains($userPrompt, 'Losartán 50 mg'), "El contexto del paciente entregado al modelo incluye los medicamentos activos");
         $this->assert(str_contains($result['plan'], 'Losartán'), "El borrador final utiliza el nombre correcto del fármaco verificado");
+    }
+
+    /**
+     * Test 6: Section content guidance — built-in default, admin override, provider extras
+     * and block order in the assembled system prompt.
+     *
+     * With an empty soap_section_guidance setting the prompt must carry the built-in
+     * default (the four sections in order plus the assessment restriction). With a
+     * non-empty setting the default must be replaced by the custom text in the same
+     * position. The output-format block must always remain the last block.
+     */
+    private function testSectionContentGuidanceDefaultAndOverride(): void
+    {
+        echo "\n6. Guía de contenido de secciones SOAP (default, override y orden de bloques):\n";
+
+        $validJson = json_encode([
+            'subjective' => 'Paciente refiere tos.',
+            'objective'  => 'TA 120/80 mmHg.',
+            'assessment' => 'Cuadro viral.',
+            'plan'       => 'Reposo e hidratación.',
+        ]);
+
+        $default = SoapDraftGenerator::DEFAULT_SECTION_GUIDANCE;
+
+        // Case A: empty setting -> the built-in default guidance is used.
+        $providerA = new MockAiProvider();
+        $providerA->queueResponse($validJson);
+        $generatorA = new SoapDraftGenerator(new MockSettingsManager(), $providerA);
+        $generatorA->generateDraft('Consulta por tos.', [], 'es-AR');
+        $systemA = $providerA->recordedCalls[0]['messages'][0]['content'];
+
+        $this->assert(str_contains($systemA, $default), 'Con la configuración vacía el prompt usa la guía predeterminada integrada');
+        $this->assert(
+            str_contains($systemA, 'assessment: ONLY the diagnostic impressions the clinician dictated'),
+            'La restricción de assessment ("ONLY the diagnostic impressions the clinician dictated") está presente por defecto'
+        );
+
+        $posSubj = strpos($systemA, '- subjective:');
+        $posObj  = strpos($systemA, '- objective:');
+        $posAsmt = strpos($systemA, '- assessment:');
+        $posPlan = strpos($systemA, '- plan:');
+        $this->assert(
+            $posSubj !== false && $posObj !== false && $posAsmt !== false && $posPlan !== false
+                && $posSubj < $posObj && $posObj < $posAsmt && $posAsmt < $posPlan,
+            'Las cuatro secciones aparecen en orden (subjective, objective, assessment, plan)'
+        );
+
+        $lastLineA = trim((string) strrchr($systemA, "\n"));
+        $this->assert(str_contains($lastLineA, 'OUTPUT FORMAT'), 'El bloque de formato de salida es el último bloque del prompt');
+
+        // Case B: custom setting -> the default is replaced by the custom text, same position.
+        $providerB = new MockAiProvider();
+        $providerB->queueResponse($validJson);
+        $custom = 'CUSTOM GUIDANCE: keep every section terse.';
+        $generatorB = new SoapDraftGenerator(new MockSettingsManager(['soap_section_guidance' => $custom]), $providerB);
+        $generatorB->generateDraft('Consulta por tos.', [], 'es-AR');
+        $systemB = $providerB->recordedCalls[0]['messages'][0]['content'];
+
+        $this->assert(str_contains($systemB, $custom), 'Con una configuración personalizada el prompt incluye el texto personalizado');
+        $this->assert(!str_contains($systemB, $default), 'Con una configuración personalizada el texto predeterminado NO aparece');
+
+        $posRuleB   = strpos($systemB, 'SECURITY & PROMPT-INJECTION DEFENSE');
+        $posCustomB = strpos($systemB, $custom);
+        $posOutB    = strpos($systemB, 'OUTPUT FORMAT:');
+        $this->assert(
+            $posRuleB !== false && $posCustomB !== false && $posOutB !== false
+                && $posRuleB < $posCustomB && $posCustomB < $posOutB,
+            'La guía personalizada queda en la misma posición (tras las reglas core, antes del formato de salida)'
+        );
+
+        // Case C: provider additional instructions are appended after the guidance.
+        $providerC = new MockAiProvider();
+        $providerC->queueResponse($validJson);
+        $generatorC = new SoapDraftGenerator(
+            new MockSettingsManager([
+                'soap_section_guidance' => $custom,
+                'openai_prompt_extra'   => 'PROVIDER NOTE ABC',
+            ]),
+            $providerC
+        );
+        $generatorC->generateDraft('Consulta por tos.', [], 'es-AR');
+        $systemC = $providerC->recordedCalls[0]['messages'][0]['content'];
+
+        $this->assert(str_contains($systemC, 'PROVIDER NOTE ABC'), 'Las instrucciones adicionales del proveedor se agregan al prompt');
+        $this->assert(
+            strpos($systemC, $custom) < strpos($systemC, 'PROVIDER NOTE ABC')
+                && strpos($systemC, 'PROVIDER NOTE ABC') < strpos($systemC, 'PRECEDENCE:'),
+            'Las instrucciones del proveedor van después de la guía y antes de la cláusula de precedencia'
+        );
     }
 }
 

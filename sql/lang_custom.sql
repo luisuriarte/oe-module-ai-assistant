@@ -488,7 +488,15 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Family history of mental illness', 'Antecedentes familiares de enfermedad mental'),
 ('Spanish (Latin American)', 'el', 'Family history of suicide', 'Antecedentes familiares de suicidio'),
 ('Spanish (Latin American)', 'el', 'Hip replacement', 'Reemplazo de cadera'),
-('Spanish (Latin American)', 'el', 'Knee replacement', 'Reemplazo de rodilla')
+('Spanish (Latin American)', 'el', 'Knee replacement', 'Reemplazo de rodilla'),
+
+-- SOAP prompt customization (settings page)
+('Spanish (Latin American)', 'el', 'SOAP Section Content Guidance', 'Guía de contenido de las secciones SOAP'),
+('Spanish (Latin American)', 'el', 'Section content guidance', 'Guía de contenido de las secciones'),
+('Spanish (Latin American)', 'el', 'Extra guidance sent with the SOAP draft prompt. Leave empty to use the built-in default shown below.', 'Guía adicional que se envía con el prompt del borrador SOAP. Dejar vacío para usar el valor predeterminado integrado que se muestra abajo.'),
+('Spanish (Latin American)', 'el', 'Built-in default (used when the field is empty)', 'Valor predeterminado integrado (se usa cuando el campo está vacío)'),
+('Spanish (Latin American)', 'el', 'Additional instructions for this provider (optional)', 'Instrucciones adicionales para este proveedor (opcional)'),
+('Spanish (Latin American)', 'el', 'Appended after the section content guidance. These instructions never override the clinical safety rules.', 'Se agregan después de la guía de contenido de secciones. Estas instrucciones nunca reemplazan las reglas de seguridad clínica.')
 );
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)

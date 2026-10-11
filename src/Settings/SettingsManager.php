@@ -253,6 +253,17 @@ class SettingsManager
             // Output
             'output_language'        => 'es',   // Spanish
 
+            // SOAP prompt customization. soap_section_guidance empty => the built-in
+            // SoapDraftGenerator::DEFAULT_SECTION_GUIDANCE constant is used. Each
+            // <provider>_prompt_extra is appended (subordinate to the safety rules)
+            // only for the matching active_provider.
+            'soap_section_guidance'  => '',
+            'openai_prompt_extra'    => '',
+            'anthropic_prompt_extra' => '',
+            'gemini_prompt_extra'    => '',
+            'grok_prompt_extra'      => '',
+            'zai_prompt_extra'       => '',
+
             // Features
             'chat_enabled'           => '0',
 

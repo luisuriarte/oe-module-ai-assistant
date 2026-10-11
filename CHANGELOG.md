@@ -41,6 +41,16 @@ All notable changes to **oe-module-ai-assistant**.
   `[[cite:nota_actual]]`) and excludes that encounter from the previous-encounters list so
   the same note is not duplicated. The text is redacted with the same best-effort rules as
   stored notes and bounded in size per field and overall.
+- **SOAP prompt customization** — the draft system prompt now embeds a built-in **section
+  content guidance** block (what belongs in each of `subjective`, `objective`, `assessment`,
+  `plan`; the assessment line restricts the model to the clinician's own diagnoses). The
+  `soap_section_guidance` setting overrides it (empty = built-in default) in the same
+  position, and per-provider `<provider>_prompt_extra` (e.g. `openai_prompt_extra`) appends
+  optional instructions for the active provider, always subordinate to the clinical safety
+  rules. The default is a single English code constant
+  (`SoapDraftGenerator::DEFAULT_SECTION_GUIDANCE`), never passed through `xl()` and not stored
+  in `lang_custom.sql`; the settings page shows it as a read-only preview. No schema change
+  (key/value settings table).
 - `LICENSE` (GNU GPL v3, mirrored from the OpenEMR repository) and this `CHANGELOG.md`.
 
 ### Changed
