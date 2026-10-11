@@ -63,6 +63,10 @@ All notable changes to **oe-module-ai-assistant**.
 - Docs updated to M7: `README.md` / `README_es.md`, `COMPATIBILITY.md` / `COMPATIBILITY_es.md`.
 - Removed orphaned assets from the legacy UI (`ai-dictation.js`, `ai-chat.js`) that were no
   longer referenced by any live template or controller.
+- `tests/SoapDraftSimulationTest.php` extended with sanitizer coverage, the 2000/2001
+  character limit, the reading-path cap, an identical system prompt on the invalid-JSON
+  retry, and resilience of the final output-format block against provider-injected
+  `OUTPUT FORMAT` / fake JSON keys.
 
 ### Fixed
 - **PatientContextBuilder allergy fallback query referenced a nonexistent `lists.severity`
@@ -78,6 +82,15 @@ All notable changes to **oe-module-ai-assistant**.
   grounded only in saved `form_soap` rows, so text typed in the editor but not yet saved was
   invisible to the model. The editor now sends the current S/O/A/P with each question (see
   the `CURRENT NOTE` section above).
+- **SOAP prompt customization hardening** — `soap_section_guidance` and every
+  `<provider>_prompt_extra` are now sanitized (newlines normalized, control characters
+  removed, trimmed) and capped at **2000 characters** on both the save path
+  (`SettingsController`) and the prompt reading path (`SoapDraftGenerator`); an oversized
+  value is not saved and the settings page reports it while the other settings are kept. The
+  default guidance now instructs the model to keep the key and set the value to an empty
+  string when a section has no information, the precedence clause explicitly covers the
+  output format and forbids restating the instructions, and the output-format block is no
+  longer numbered (`7.` removed) so the numbered list stays only the safety rules 1-6.
 
 ## Milestone history
 

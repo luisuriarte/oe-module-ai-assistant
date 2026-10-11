@@ -247,7 +247,7 @@ use OpenEMR\Core\Header;
                     </div>
                     <div class="form-group">
                         <label for="openai_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
-                        <textarea class="form-control" id="openai_prompt_extra" name="openai_prompt_extra" rows="2"><?php echo text($current['openai_prompt_extra'] ?? ''); ?></textarea>
+                        <textarea class="form-control" id="openai_prompt_extra" name="openai_prompt_extra" rows="2" maxlength="2000"><?php echo text($current['openai_prompt_extra'] ?? ''); ?></textarea>
                         <small class="form-text text-muted">
                             <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
                         </small>
@@ -291,7 +291,7 @@ use OpenEMR\Core\Header;
                     </div>
                     <div class="form-group">
                         <label for="anthropic_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
-                        <textarea class="form-control" id="anthropic_prompt_extra" name="anthropic_prompt_extra" rows="2"><?php echo text($current['anthropic_prompt_extra'] ?? ''); ?></textarea>
+                        <textarea class="form-control" id="anthropic_prompt_extra" name="anthropic_prompt_extra" rows="2" maxlength="2000"><?php echo text($current['anthropic_prompt_extra'] ?? ''); ?></textarea>
                         <small class="form-text text-muted">
                             <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
                         </small>
@@ -335,7 +335,7 @@ use OpenEMR\Core\Header;
                     </div>
                     <div class="form-group">
                         <label for="gemini_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
-                        <textarea class="form-control" id="gemini_prompt_extra" name="gemini_prompt_extra" rows="2"><?php echo text($current['gemini_prompt_extra'] ?? ''); ?></textarea>
+                        <textarea class="form-control" id="gemini_prompt_extra" name="gemini_prompt_extra" rows="2" maxlength="2000"><?php echo text($current['gemini_prompt_extra'] ?? ''); ?></textarea>
                         <small class="form-text text-muted">
                             <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
                         </small>
@@ -385,7 +385,7 @@ use OpenEMR\Core\Header;
                     </div>
                     <div class="form-group">
                         <label for="grok_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
-                        <textarea class="form-control" id="grok_prompt_extra" name="grok_prompt_extra" rows="2"><?php echo text($current['grok_prompt_extra'] ?? ''); ?></textarea>
+                        <textarea class="form-control" id="grok_prompt_extra" name="grok_prompt_extra" rows="2" maxlength="2000"><?php echo text($current['grok_prompt_extra'] ?? ''); ?></textarea>
                         <small class="form-text text-muted">
                             <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
                         </small>
@@ -435,7 +435,7 @@ use OpenEMR\Core\Header;
                     </div>
                     <div class="form-group">
                         <label for="zai_prompt_extra"><?php echo xlt('Additional instructions for this provider (optional)'); ?></label>
-                        <textarea class="form-control" id="zai_prompt_extra" name="zai_prompt_extra" rows="2"><?php echo text($current['zai_prompt_extra'] ?? ''); ?></textarea>
+                        <textarea class="form-control" id="zai_prompt_extra" name="zai_prompt_extra" rows="2" maxlength="2000"><?php echo text($current['zai_prompt_extra'] ?? ''); ?></textarea>
                         <small class="form-text text-muted">
                             <?php echo xlt('Appended after the section content guidance. These instructions never override the clinical safety rules.'); ?>
                         </small>
@@ -497,7 +497,7 @@ use OpenEMR\Core\Header;
             <div class="card-body">
                 <div class="form-group">
                     <label for="soap_section_guidance"><?php echo xlt('Section content guidance'); ?></label>
-                    <textarea class="form-control" id="soap_section_guidance" name="soap_section_guidance" rows="7"><?php echo text($current['soap_section_guidance'] ?? ''); ?></textarea>
+                    <textarea class="form-control" id="soap_section_guidance" name="soap_section_guidance" rows="7" maxlength="2000"><?php echo text($current['soap_section_guidance'] ?? ''); ?></textarea>
                     <small class="form-text text-muted">
                         <?php echo xlt('Extra guidance sent with the SOAP draft prompt. Leave empty to use the built-in default shown below.'); ?>
                     </small>

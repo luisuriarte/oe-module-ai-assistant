@@ -279,6 +279,18 @@ class SettingsController
         // (blank = "do not change existing key")
         $encryptedKeys = ['openai_api_key', 'anthropic_api_key', 'gemini_api_key', 'grok_api_key', 'zai_api_key'];
 
+        // Free-text prompt settings: sanitized on write and bounded in length. A value
+        // over the limit is not saved (the other settings still are).
+        $promptSettingKeys = [
+            'soap_section_guidance',
+            'openai_prompt_extra',
+            'anthropic_prompt_extra',
+            'gemini_prompt_extra',
+            'grok_prompt_extra',
+            'zai_prompt_extra',
+        ];
+        $limitErrors = [];
+
         foreach (array_keys($defaults) as $key) {
             if ($key === 'consent_acknowledged') {
                 continue; // handled above
@@ -295,6 +307,16 @@ class SettingsController
                 continue;
             }
 
+            // Prompt settings: normalize and enforce the length limit before saving.
+            if (in_array($key, $promptSettingKeys, true)) {
+                $postValue = SoapDraftGenerator::sanitizePromptSetting((string) $postValue);
+                if (!SoapDraftGenerator::promptSettingWithinLimit($postValue)) {
+                    $limitErrors[] = $key;
+
+                    continue;
+                }
+            }
+
             try {
                 $this->settings->set($key, $postValue);
                 $saved[] = $key;
@@ -308,11 +330,22 @@ class SettingsController
         }
 
         // Re-render form with a status message
+        $statusMessages = [];
+        if (!empty($limitErrors)) {
+            $statusMessages[] = xlt('One or more prompt settings exceed the maximum length and were not saved:')
+                . ' ' . implode(', ', $limitErrors)
+                . ' (' . SoapDraftGenerator::MAX_PROMPT_SETTING_LENGTH . ')';
+        }
+        if (!empty($errors)) {
+            $statusMessages[] = xlt('Some settings could not be saved. Check server logs.');
+        }
+        if (empty($statusMessages)) {
+            $statusMessages[] = xlt('Settings saved.');
+        }
+
         $this->renderForm(
-            success: empty($errors),
-            message: empty($errors)
-                ? xlt('Settings saved.')
-                : xlt('Some settings could not be saved. Check server logs.')
+            success: empty($errors) && empty($limitErrors),
+            message: implode(' ', $statusMessages)
         );
     }
 

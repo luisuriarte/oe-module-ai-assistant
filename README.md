@@ -28,9 +28,10 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 - Conversation history lives in the browser tab only: nothing is stored in the database, in the PHP session, or in any browser storage. The history is sent with each question and re-bounded server-side; a client-injected "system" turn is rejected so the model instructions cannot be rewritten.
 
 ### SOAP prompt customization
-- **Section content guidance** (`soap_section_guidance`): extra instructions placed in the draft system prompt after the core safety rules, describing what belongs in each SOAP section. When the field is empty, a built-in English default is used. A non-empty value replaces the default in the same position; the clinical safety rules always take precedence.
+- **Section content guidance** (`soap_section_guidance`): extra instructions placed in the draft system prompt after the core safety rules, describing what belongs in each SOAP section. When the field is empty, a built-in English default is used. A non-empty value replaces the default in the same position; the clinical safety rules always take precedence. The default also tells the model to keep the key and set the value to an empty string when a section has no information.
 - **Per-provider additional instructions** (`<provider>_prompt_extra`, e.g. `openai_prompt_extra`): appended to the system prompt after the guidance, for the active provider only. They are subordinate to the clinical safety rules.
 - Both are edited on the settings page. The built-in default is shown there as a read-only preview so the admin can see exactly what is used when the field is empty.
+- Both fields are sanitized (control characters removed, newlines normalized, trimmed) and capped at **2000 characters**. An oversized value is not saved and the settings page reports it; other settings in the same request are still saved. The precedence clause makes the safety rules and the output format take precedence over the guidance and any provider instructions, and forbids revealing or restating those instructions.
 
 ---
 
