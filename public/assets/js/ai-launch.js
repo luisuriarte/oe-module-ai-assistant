@@ -1,5 +1,5 @@
 /**
- * ai-launch.js — injects the "IA" button into the native SOAP form.
+ * ai-launch.js — injects the "AI" button into the native SOAP form.
  *
  * The native SOAP form (load_form.php / view_form.php) is no longer given the full
  * dictation toolbar. Instead, this lightweight script adds a single button next to
@@ -77,9 +77,9 @@
         btn.type = 'button';
         btn.id = 'oe-ai-launch-btn';
         btn.className = 'btn oe-ai-launch-btn';
-        btn.title = 'SOAP con IA';
+        btn.title = 'SOAP with AI';
         btn.innerHTML = '<i class="fa fa-robot" aria-hidden="true"></i> '
-            + '<span class="oe-ai-launch-btn-label">IA</span>';
+            + '<span class="oe-ai-launch-btn-label">AI</span>';
 
         btn.addEventListener('click', function () {
             if (window.top && typeof window.top.restoreSession === 'function') {
