@@ -110,9 +110,8 @@ class ZaiAdapter extends OpenAiAdapter
      *
      * GLM models are hybrid reasoning models, so thinking is disabled by default (see
      * THINKING_DISABLED). Some deployments do not accept the parameter at all: if the API
-     * answers with a 400 that clearly blames "thinking" (or an unknown/unsupported
-     * parameter), the request is retried exactly once without it. Any other error is
-     * rethrown unchanged. Never loops.
+     * answers with a 400 that clearly blames "thinking", the request is retried exactly
+     * once without it. Any other error is rethrown unchanged. Never loops.
      *
      * @param array<int, array{role: string, content: string}> $messages
      * @param array<string, mixed>                             $options
@@ -145,9 +144,11 @@ class ZaiAdapter extends OpenAiAdapter
      * Identifies the request field Z.ai blamed, from the 4xx error body.
      *
      * Only the short field name is returned; the provider message is inspected to classify
-     * the error but never stored or logged. On HTTP 400 it recognises a message that names
-     * "thinking", or a generic unknown/unsupported-parameter rejection — the only optional
-     * field this adapter adds beyond the OpenAI-compatible set.
+     * the error but never stored or logged. On HTTP 400 it returns "thinking" only when the
+     * message names that word (e.g. the documented code 1214, "Parameter `thinking` is
+     * invalid") — the only optional field this adapter adds beyond the OpenAI-compatible
+     * set. Every other 400, including one about a different parameter, returns null so it
+     * cannot trigger a wasted retry or a misleading rejection warning.
      */
     protected function rejectedFieldFromErrorBody(string $body, int $statusCode): ?string
     {
@@ -166,13 +167,6 @@ class ZaiAdapter extends OpenAiAdapter
         }
 
         if (str_contains($message, self::THINKING_PARAM)) {
-            return self::THINKING_PARAM;
-        }
-
-        if (
-            (str_contains($message, 'unsupported') || str_contains($message, 'unknown'))
-            && str_contains($message, 'parameter')
-        ) {
             return self::THINKING_PARAM;
         }
 
@@ -207,7 +201,8 @@ class ZaiAdapter extends OpenAiAdapter
                 self::TOKEN_LIMIT_MESSAGE . ' '
                     . "(finish_reason=length, reasoning_content_present="
                     . ($reasoningPresent ? 'true' : 'false')
-                    . '). Increase max tokens in settings or keep thinking disabled.',
+                    . '). The output budget is set by the calling feature (SOAP draft or chat), '
+                    . 'and thinking is already disabled for Z.ai by default.',
                 $statusCode,
                 null,
                 $this->getProviderName()

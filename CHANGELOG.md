@@ -104,6 +104,16 @@ All notable changes to **oe-module-ai-assistant**.
   `model`, `finish_reason`, `reasoning_content_present`) — never the content or the reasoning
   text. A `length` finish reason now raises a clear invalid-response error (the model exhausted
   its output token budget) instead of a generic invalid-JSON failure.
+- **Z.ai 400 handling tightened and token-limit advice corrected** — `ZaiAdapter` now treats a
+  `thinking` rejection only when the HTTP 400 message names `thinking` (documented code 1214); a
+  400 about a different parameter is no longer misread through the former generic
+  "unknown/unsupported parameter" branch, so it neither triggers a wasted retry nor logs a
+  misleading "Z.ai rejected the thinking parameter" warning. The empty-answer token-limit error
+  no longer advises raising `zai_max_tokens` (the SOAP draft and chat pass `max_tokens`
+  explicitly, overriding that setting): it now states that the output budget is set by the
+  calling feature and that thinking is already disabled for Z.ai by default.
+  `tests/ProviderSimulationTest.php` covers the stricter detection (including a 400 that blames
+  `temperature`) and asserts the OpenAI and Grok request bodies contain no `thinking` key.
 
 ## Milestone history
 

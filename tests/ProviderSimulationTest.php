@@ -278,6 +278,7 @@ class ProviderSimulationRunner
         $this->assert('OpenAI: Token usage out matches', $resp->tokensOut === 12);
         $this->assert('OpenAI: Total tokens matches', $resp->getTotalTokens() === 37);
         $this->assert('OpenAI: Authorization Bearer header sent', str_contains($adapter->lastExecuted['headers']['Authorization'] ?? '', 'Bearer sk-test-key-openai'));
+        $this->assert('OpenAI: Request body has no thinking key', !array_key_exists('thinking', json_decode($adapter->lastExecuted['body'] ?? '{}', true)));
     }
 
     private function testAnthropicSimulation(): void
@@ -409,6 +410,7 @@ class ProviderSimulationRunner
         $body = json_decode($adapter->lastExecuted['body'], true);
         $this->assert('Grok: Model sent in payload', ($body['model'] ?? '') === 'grok-4.7');
         $this->assert('Grok: System role preserved in messages', ($body['messages'][0]['role'] ?? '') === 'system');
+        $this->assert('Grok: Request body has no thinking key', !array_key_exists('thinking', $body));
 
         // Provider name flows into the audit trail, so it must never leak as 'openai'
         $this->assert('Grok: Provider name distinct from openai', $adapter->getProviderName() !== 'openai');
@@ -494,8 +496,9 @@ class ProviderSimulationRunner
 
     /**
      * Z.ai hybrid-reasoning handling: the request disables thinking, a 400 that blames
-     * "thinking" is retried exactly once without it, an unrelated 400 is not retried, and
-     * an empty answer at the token limit raises a clear error with metadata-only logging.
+     * "thinking" is retried exactly once without it, a 400 that blames another parameter is
+     * not retried, and an empty answer at the token limit raises a clear error with
+     * metadata-only logging.
      */
     private function testZaiThinkingControl(): void
     {
@@ -507,6 +510,32 @@ class ProviderSimulationRunner
         $this->assert('Zai thinking: blames the thinking field on a 1214 body', $probe->blamedField($thinkingBody, 400) === 'thinking');
         $this->assert('Zai thinking: error detail names the blamed field', str_contains($probe->errorDetail($thinkingBody, 400), 'param=thinking'));
         $this->assert('Zai thinking: unrelated 400 does not blame thinking', $probe->blamedField($unrelatedBody, 400) === null);
+
+        // Stricter rule: a 400 that blames another parameter must never be attributed to
+        // thinking, even when worded like the generic unsupported/unknown-parameter
+        // rejection that the previous implementation accepted.
+        $otherParamBody       = '{"error":{"code":"1214","message":"Parameter `temperature` is invalid."}}';
+        $unsupportedOtherBody = '{"error":{"code":"1214","message":"Unsupported parameter: temperature"}}';
+        $this->assert('Zai thinking: a 400 about another parameter (temperature) is not blamed', $probe->blamedField($otherParamBody, 400) === null);
+        $this->assert('Zai thinking: an "unsupported parameter" 400 about another parameter is not blamed', $probe->blamedField($unsupportedOtherBody, 400) === null);
+
+        // Such a 400 must not be retried: it is rethrown on the first attempt and the
+        // queued success is never consumed.
+        $adapterOther  = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
+        $otherRejected = new ProviderInvalidResponseException('Z.ai rejected the request (HTTP 400)', 400, null, 'zai');
+        $otherRejected->setErrorDetail($adapterOther->errorDetail($unsupportedOtherBody, 400));
+        $adapterOther->responseQueue = [
+            ['exception' => $otherRejected],
+            ['statusCode' => 200, 'body' => '{"choices":[{"message":{"content":"should not be reached"},"finish_reason":"stop"}]}', 'headers' => []],
+        ];
+
+        $otherRethrown = false;
+        try {
+            $adapterOther->generate([['role' => 'user', 'content' => 'hola']]);
+        } catch (ProviderInvalidResponseException $e) {
+            $otherRethrown = $e->getCode() === 400;
+        }
+        $this->assert('Zai thinking: a 400 about another parameter is not retried', $otherRethrown && count($adapterOther->executed) === 1);
 
         // 2. A 400 that rejects thinking is retried exactly once, without the parameter.
         $adapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
