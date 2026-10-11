@@ -49,13 +49,39 @@ class OpenAiAdapter extends AbstractProviderAdapter
 
     public function generate(array $messages, array $options = []): ProviderResponse
     {
-        $payload = [
+        return $this->sendChatCompletion($this->buildChatPayload($messages, $options), $options);
+    }
+
+    /**
+     * Builds the OpenAI-compatible Chat Completions request payload.
+     *
+     * Kept as a protected method so provider subclasses can add their own optional
+     * parameters without duplicating the request/response plumbing, and without changing
+     * the payload OpenAI itself sends.
+     *
+     * @param array<int, array{role: string, content: string}> $messages
+     * @param array<string, mixed>                             $options
+     * @return array<string, mixed>
+     */
+    protected function buildChatPayload(array $messages, array $options): array
+    {
+        return [
             'model'       => $this->model,
             'messages'    => array_values($messages),
             'temperature' => (float) ($options['temperature'] ?? $this->temperature),
             'max_tokens'  => (int) ($options['max_tokens'] ?? $this->maxTokens),
         ];
+    }
 
+    /**
+     * Sends a prepared Chat Completions payload and parses the OpenAI-compatible response.
+     *
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $options
+     * @throws ProviderException
+     */
+    protected function sendChatCompletion(array $payload, array $options): ProviderResponse
+    {
         $url = $this->baseUrl . '/chat/completions';
 
         $headers = [
@@ -86,12 +112,16 @@ class OpenAiAdapter extends AbstractProviderAdapter
             );
         }
 
-        $first         = $choices[0];
-        $text          = (string) ($first['message']['content'] ?? '');
-        $finishReason  = (string) ($first['finish_reason'] ?? 'stop');
-        $usage         = $data['usage'] ?? [];
-        $tokensIn      = (int) ($usage['prompt_tokens'] ?? 0);
-        $tokensOut     = (int) ($usage['completion_tokens'] ?? 0);
+        $first        = $choices[0];
+        $message      = is_array($first['message'] ?? null) ? $first['message'] : [];
+        $text         = (string) ($message['content'] ?? '');
+        $finishReason = (string) ($first['finish_reason'] ?? 'stop');
+
+        $this->afterChatCompletionParsed($text, $finishReason, $message, $resp['statusCode']);
+
+        $usage     = $data['usage'] ?? [];
+        $tokensIn  = (int) ($usage['prompt_tokens'] ?? 0);
+        $tokensOut = (int) ($usage['completion_tokens'] ?? 0);
 
         return new ProviderResponse(
             text: $text,
@@ -105,6 +135,18 @@ class OpenAiAdapter extends AbstractProviderAdapter
                 'total_tokens'  => $tokensIn + $tokensOut,
             ]
         );
+    }
+
+    /**
+     * Hook invoked after a Chat Completions response is parsed, before the DTO is built.
+     *
+     * Default no-op: intended for provider-specific diagnostics or validation. Throwing
+     * here surfaces through the normal provider exception flow.
+     *
+     * @param array<string, mixed> $message the choices[0].message object
+     */
+    protected function afterChatCompletionParsed(string $text, string $finishReason, array $message, int $statusCode): void
+    {
     }
 
     /**

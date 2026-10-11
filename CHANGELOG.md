@@ -23,7 +23,7 @@ All notable changes to **oe-module-ai-assistant**.
   any uncaught `Throwable` into a JSON 500 that never leaks the exception or provider payload.
 - **Z.ai (GLM) provider** — new `Provider\Adapter\ZaiAdapter` extending `OpenAiAdapter`
   (OpenAI-compatible). Selectable as `zai` on the settings page with defaults
-  `https://api.z.ai/api/paas/v4`, model `glm-4-flash`, temperature `0.2`, max tokens `4096`;
+  `https://api.z.ai/api/paas/v4`, model `glm-4.5-flash`, temperature `0.2`, max tokens `4096`;
   API key stored encrypted as `zai_api_key`.
 - **Microphone test (settings)** — new **Microphone Test** card that lists the browser
   input devices (`enumerateDevices`), shows a live level meter (Web Audio `AnalyserNode`)
@@ -67,6 +67,10 @@ All notable changes to **oe-module-ai-assistant**.
   character limit, the reading-path cap, an identical system prompt on the invalid-JSON
   retry, and resilience of the final output-format block against provider-injected
   `OUTPUT FORMAT` / fake JSON keys.
+- **Z.ai default model** is now `glm-4.5-flash` (was `glm-4-flash`) in the adapter constant,
+  `SettingsManager::getDefaults()`, the settings placeholder and the docs; values already
+  stored in settings are untouched. `tests/ProviderSimulationTest.php` extended for the
+  thinking parameter, the one-shot rejection fallback and the empty-answer diagnostics.
 
 ### Fixed
 - **PatientContextBuilder allergy fallback query referenced a nonexistent `lists.severity`
@@ -91,6 +95,15 @@ All notable changes to **oe-module-ai-assistant**.
   string when a section has no information, the precedence clause explicitly covers the
   output format and forbids restating the instructions, and the output-format block is no
   longer numbered (`7.` removed) so the numbered list stays only the safety rules 1-6.
+- **Z.ai (GLM) reasoning could consume the whole output budget** — GLM-4.5-Flash is a hybrid
+  reasoning model, so with thinking on it could spend the (small) output budget on
+  `reasoning_content` before emitting the JSON SOAP draft, producing an empty/truncated answer
+  and a wasted correction retry. `ZaiAdapter` now always sends `thinking = {"type":"disabled"}`,
+  retries exactly once without the parameter when the endpoint rejects it with an HTTP 400 that
+  blames `thinking` (logging a warning), and on an empty answer logs metadata only (`provider`,
+  `model`, `finish_reason`, `reasoning_content_present`) — never the content or the reasoning
+  text. A `length` finish reason now raises a clear invalid-response error (the model exhausted
+  its output token budget) instead of a generic invalid-JSON failure.
 
 ## Milestone history
 

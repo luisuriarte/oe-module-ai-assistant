@@ -239,7 +239,7 @@ class SettingsManager
 
             // Z.ai (GLM) — OpenAI-compatible endpoint
             'zai_base_url'           => 'https://api.z.ai/api/paas/v4',
-            'zai_model'              => 'glm-4-flash',
+            'zai_model'              => 'glm-4.5-flash',
             'zai_temperature'        => '0.2',
             'zai_max_tokens'         => '4096',
             'zai_api_key'            => '',   // encrypted

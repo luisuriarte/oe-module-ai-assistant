@@ -145,7 +145,7 @@ oe-module-ai-assistant/
 | `grok_max_tokens` | `2048` | Tokens máximos de salida |
 | `grok_api_key` | — | Cifrada en reposo |
 | `zai_base_url` | `https://api.z.ai/api/paas/v4` | Endpoint Z.ai (Zhipu), compatible con OpenAI |
-| `zai_model` | `glm-4-flash` | Cualquier id de modelo disponible para tu clave |
+| `zai_model` | `glm-4.5-flash` | Cualquier id de modelo disponible para tu clave |
 | `zai_temperature` | `0.2` | 0.0 – 2.0 |
 | `zai_max_tokens` | `4096` | Tokens máximos de salida |
 | `zai_api_key` | — | Cifrada en reposo |
@@ -166,6 +166,13 @@ oe-module-ai-assistant/
 | `rate_limit_draft_per_min` | `6` | Máximo de borradores por usuario cada 60 s (`0` = ilimitado) |
 | `rate_limit_chat_per_min` | `10` | Máximo de preguntas de chat por usuario cada 60 s (`0` = ilimitado) |
 | `rate_limit_transcribe_per_min` | `4` | Máximo de transcripciones por usuario cada 60 s (`0` = ilimitado) |
+
+El adaptador de **Z.ai (GLM)** siempre desactiva el modo de razonamiento profundo del modelo
+(`thinking = {"type":"disabled"}`) para que el presupuesto de salida se use en la respuesta y
+no en `reasoning_content`; si el endpoint rechaza el parámetro con HTTP 400, reintenta una vez
+sin él. Una respuesta vacía se diagnostica solo con metadatos (nunca el contenido ni el texto
+de razonamiento), y un `finish_reason` `length` se informa como agotamiento de tokens de salida
+en lugar de un fallo genérico de JSON inválido.
 
 ---
 

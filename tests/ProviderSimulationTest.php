@@ -9,8 +9,10 @@
  *   3. Gemini adapter: candidates extraction, safety block handling, token counts.
  *   4. Grok (xAI) adapter: endpoint default, provider identity, response extraction.
  *   5. Z.ai (GLM) adapter: endpoint default, provider identity, dotted API key, response extraction.
- *   6. Uniform ProviderException mapping (401/403, 429, timeout, safety block).
- *   7. Security validations: HTTPS-only, SSRF prevention on private/link-local IPs, embedded credential rejection.
+ *   6. Z.ai thinking control: thinking disabled by default, one-shot retry when a 400 blames it,
+ *      unrelated errors not retried, empty-answer diagnostics without leaking content.
+ *   7. Uniform ProviderException mapping (401/403, 429, timeout, safety block).
+ *   8. Security validations: HTTPS-only, SSRF prevention on private/link-local IPs, embedded credential rejection.
  *
  * Compatibility: OpenEMR 8.2.0+ (PHP 8.2 compatible).
  */
@@ -118,11 +120,25 @@ class TestableGrokAdapter extends GrokAdapter
 class TestableZaiAdapter extends ZaiAdapter
 {
     public array $lastExecuted = [];
+    /** Every request body/url executed, in order (used by the retry test). */
+    public array $executed = [];
     public ?array $mockResponse = null;
+    /** Responses (or ['exception' => Throwable]) consumed one per call. */
+    public array $responseQueue = [];
 
     protected function executeRequest(string $url, string $method = 'POST', array $headers = [], ?string $jsonBody = null, ?int $customTimeout = null): array
     {
         $this->lastExecuted = ['url' => $url, 'method' => $method, 'headers' => $headers, 'body' => $jsonBody, 'timeout' => $customTimeout];
+        $this->executed[]   = $this->lastExecuted;
+
+        if (!empty($this->responseQueue)) {
+            $next = array_shift($this->responseQueue);
+            if (isset($next['exception'])) {
+                throw $next['exception'];
+            }
+            return $next;
+        }
+
         if ($this->mockResponse !== null) {
             if (isset($this->mockResponse['exception'])) {
                 throw $this->mockResponse['exception'];
@@ -130,6 +146,24 @@ class TestableZaiAdapter extends ZaiAdapter
             return $this->mockResponse;
         }
         return ['statusCode' => 200, 'body' => '{}', 'headers' => []];
+    }
+
+    /** Test seam: the field Z.ai would blame for a given 4xx body. */
+    public function blamedField(string $body, int $statusCode): ?string
+    {
+        return $this->rejectedFieldFromErrorBody($body, $statusCode);
+    }
+
+    /** Test seam: the sanitized error detail the request layer would attach. */
+    public function errorDetail(string $body, int $statusCode): string
+    {
+        return $this->buildErrorDetail($body, $statusCode);
+    }
+
+    /** Test seam: the metadata-only log context for an empty answer. */
+    public function emptyLogContext(string $finishReason, bool $reasoningPresent): array
+    {
+        return $this->emptyCompletionContext($finishReason, $reasoningPresent);
     }
 }
 
@@ -148,6 +182,7 @@ class ProviderSimulationRunner
         $this->testGeminiSimulation();
         $this->testGrokSimulation();
         $this->testZaiSimulation();
+        $this->testZaiThinkingControl();
         $this->testGeminiSafetyBlocks();
         $this->testUniformExceptions();
         $this->testTimeoutForwarding();
@@ -394,13 +429,13 @@ class ProviderSimulationRunner
         $defaults = new TestableZaiAdapter('abc12345.abcdefghijkl');
         $this->assert('Zai: Default provider identifier is zai', $defaults->getProviderName() === 'zai');
 
-        $adapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4-flash', 0.2, 4096);
+        $adapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
         $adapter->mockResponse = [
             'statusCode' => 200,
             'body' => json_encode([
                 'id' => 'chatcmpl-zai1234',
                 'object' => 'chat.completion',
-                'model' => 'glm-4-flash',
+                'model' => 'glm-4.5-flash',
                 'choices' => [
                     [
                         'index' => 0,
@@ -435,9 +470,14 @@ class ProviderSimulationRunner
         );
 
         $body = json_decode($adapter->lastExecuted['body'], true);
-        $this->assert('Zai: Model sent in payload', ($body['model'] ?? '') === 'glm-4-flash');
+        $this->assert('Zai: Model sent in payload', ($body['model'] ?? '') === 'glm-4.5-flash');
         $this->assert('Zai: Max tokens sent in payload', ($body['max_tokens'] ?? 0) === 4096);
         $this->assert('Zai: System role preserved in messages', ($body['messages'][0]['role'] ?? '') === 'system');
+        $this->assert('Zai: Default model constant is glm-4.5-flash', ZaiAdapter::DEFAULT_MODEL === 'glm-4.5-flash');
+        $this->assert(
+            'Zai: Request disables thinking (thinking.type = disabled)',
+            ($body['thinking']['type'] ?? '') === 'disabled'
+        );
 
         // Provider name flows into the audit trail, so it must never leak as 'openai'
         $this->assert('Zai: Provider name distinct from openai', $adapter->getProviderName() !== 'openai');
@@ -445,11 +485,124 @@ class ProviderSimulationRunner
         // SSRF guard must be inherited: private/loopback base URLs are refused
         $ssrfBlocked = false;
         try {
-            new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4-flash', 0.2, 4096, 'http://127.0.0.1:8080/v1');
+            new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096, 'http://127.0.0.1:8080/v1');
         } catch (\InvalidArgumentException) {
             $ssrfBlocked = true;
         }
         $this->assert('Zai: Private/loopback base URL rejected (SSRF guard inherited)', $ssrfBlocked);
+    }
+
+    /**
+     * Z.ai hybrid-reasoning handling: the request disables thinking, a 400 that blames
+     * "thinking" is retried exactly once without it, an unrelated 400 is not retried, and
+     * an empty answer at the token limit raises a clear error with metadata-only logging.
+     */
+    private function testZaiThinkingControl(): void
+    {
+        $thinkingBody  = '{"error":{"code":"1214","message":"Parameter `thinking` is invalid. Please check the documentation."}}';
+        $unrelatedBody = '{"error":{"code":"1211","message":"Unknown Model, please check the model code."}}';
+
+        // 1. Field-blame extraction feeds the retry decision and the error detail.
+        $probe = new TestableZaiAdapter('abc12345.abcdefghijkl');
+        $this->assert('Zai thinking: blames the thinking field on a 1214 body', $probe->blamedField($thinkingBody, 400) === 'thinking');
+        $this->assert('Zai thinking: error detail names the blamed field', str_contains($probe->errorDetail($thinkingBody, 400), 'param=thinking'));
+        $this->assert('Zai thinking: unrelated 400 does not blame thinking', $probe->blamedField($unrelatedBody, 400) === null);
+
+        // 2. A 400 that rejects thinking is retried exactly once, without the parameter.
+        $adapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
+        $rejected = new ProviderInvalidResponseException('Z.ai rejected the request (HTTP 400)', 400, null, 'zai');
+        $rejected->setErrorDetail($adapter->errorDetail($thinkingBody, 400));
+        $adapter->responseQueue = [
+            ['exception' => $rejected],
+            [
+                'statusCode' => 200,
+                'body' => json_encode([
+                    'choices' => [[
+                        'message' => ['role' => 'assistant', 'content' => '{"subjective":"ok","objective":"","assessment":"","plan":""}'],
+                        'finish_reason' => 'stop',
+                    ]],
+                    'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 5],
+                ]),
+                'headers' => [],
+            ],
+        ];
+
+        $resp = $adapter->generate([['role' => 'user', 'content' => 'hola']]);
+
+        $this->assert('Zai thinking: a thinking 400 triggers exactly one retry', count($adapter->executed) === 2);
+        $this->assert('Zai thinking: first request included thinking disabled', (json_decode($adapter->executed[0]['body'], true)['thinking']['type'] ?? '') === 'disabled');
+        $this->assert('Zai thinking: retried request omits thinking', !array_key_exists('thinking', json_decode($adapter->executed[1]['body'], true)));
+        $this->assert('Zai thinking: retry returns the parsed text', $resp->text === '{"subjective":"ok","objective":"","assessment":"","plan":""}');
+
+        // 3. An unrelated 400 is surfaced on the first attempt (no retry).
+        $adapter2 = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
+        $unrelated = new ProviderInvalidResponseException('Z.ai rejected the request (HTTP 400)', 400, null, 'zai');
+        $unrelated->setErrorDetail($adapter2->errorDetail($unrelatedBody, 400));
+        $adapter2->responseQueue = [
+            ['exception' => $unrelated],
+            ['statusCode' => 200, 'body' => '{"choices":[{"message":{"content":"should not be reached"},"finish_reason":"stop"}]}', 'headers' => []],
+        ];
+
+        $rethrown = false;
+        try {
+            $adapter2->generate([['role' => 'user', 'content' => 'hola']]);
+        } catch (ProviderInvalidResponseException $e) {
+            $rethrown = $e->getCode() === 400;
+        }
+        $this->assert('Zai thinking: an unrelated 400 is not retried', $rethrown && count($adapter2->executed) === 1);
+
+        // 4. Empty content at the token limit: clear error, metadata-only log context.
+        $adapter3 = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
+        $adapter3->mockResponse = [
+            'statusCode' => 200,
+            'body' => json_encode([
+                'choices' => [[
+                    'message' => ['role' => 'assistant', 'content' => '', 'reasoning_content' => 'SECRET_REASONING_TEXT'],
+                    'finish_reason' => 'length',
+                ]],
+                'usage' => ['prompt_tokens' => 30, 'completion_tokens' => 4096],
+            ]),
+            'headers' => [],
+        ];
+
+        $emptyError = null;
+        try {
+            $adapter3->generate([['role' => 'user', 'content' => 'hola']]);
+        } catch (ProviderInvalidResponseException $e) {
+            $emptyError = $e;
+        }
+        $this->assert('Zai thinking: empty content at the token limit raises an invalid-response error', $emptyError !== null);
+        $this->assert('Zai thinking: the error message points to output-token exhaustion', $emptyError !== null && stripos($emptyError->getMessage(), 'output token budget') !== false);
+
+        $context = $adapter3->emptyLogContext('length', true);
+        $this->assert('Zai thinking: empty-answer log context is metadata only', array_keys($context) === ['provider', 'model', 'finish_reason', 'reasoning_content_present']);
+        $this->assert('Zai thinking: empty-answer log context flags reasoning presence', ($context['reasoning_content_present'] ?? null) === true);
+        $this->assert('Zai thinking: empty-answer log context leaks no reasoning text', !str_contains(json_encode($context), 'SECRET_REASONING_TEXT'));
+
+        // 5. The connection probe still reports success when a 200 only exhausted its
+        //    one-token budget, but any other 200-level failure still fails the probe.
+        $probeAdapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
+        $probeAdapter->responseQueue = [
+            ['exception' => new \RuntimeException('models endpoint unavailable', 404)],
+            [
+                'statusCode' => 200,
+                'body' => json_encode([
+                    'choices' => [[
+                        'message' => ['role' => 'assistant', 'content' => '', 'reasoning_content' => 'r'],
+                        'finish_reason' => 'length',
+                    ]],
+                ]),
+                'headers' => [],
+            ],
+        ];
+        $this->assert('Zai thinking: connection probe succeeds on a token-limited 200', ($probeAdapter->testConnection()['ok'] ?? false) === true);
+
+        $brokenAdapter = new TestableZaiAdapter('abc12345.abcdefghijkl', 'glm-4.5-flash', 0.2, 4096);
+        $brokenAdapter->responseQueue = [
+            ['exception' => new \RuntimeException('models endpoint unavailable', 404)],
+            ['statusCode' => 200, 'body' => '{}', 'headers' => []],
+        ];
+        $this->assert('Zai thinking: connection probe still fails on a 200 with no choices', ($brokenAdapter->testConnection()['ok'] ?? true) === false);
     }
 
     private function testGeminiSafetyBlocks(): void

@@ -145,7 +145,7 @@ oe-module-ai-assistant/
 | `grok_max_tokens` | `2048` | Max output tokens |
 | `grok_api_key` | — | Encrypted at rest |
 | `zai_base_url` | `https://api.z.ai/api/paas/v4` | Z.ai (Zhipu) endpoint (OpenAI-compatible) |
-| `zai_model` | `glm-4-flash` | Any model id served to your key |
+| `zai_model` | `glm-4.5-flash` | Any model id served to your key |
 | `zai_temperature` | `0.2` | 0.0 – 2.0 |
 | `zai_max_tokens` | `4096` | Max output tokens |
 | `zai_api_key` | — | Encrypted at rest |
@@ -166,6 +166,13 @@ oe-module-ai-assistant/
 | `rate_limit_draft_per_min` | `6` | Max draft generations per user per 60 s (`0` = unlimited) |
 | `rate_limit_chat_per_min` | `10` | Max chat questions per user per 60 s (`0` = unlimited) |
 | `rate_limit_transcribe_per_min` | `4` | Max transcriptions per user per 60 s (`0` = unlimited) |
+
+The **Z.ai (GLM)** adapter always disables the model's deep-thinking mode
+(`thinking = {"type":"disabled"}`) so the output budget is spent on the answer rather than on
+`reasoning_content`; if the endpoint rejects the parameter with HTTP 400 it retries exactly
+once without it. An empty answer is diagnosed from metadata only (never the content or the
+reasoning text), and a `length` finish reason is reported as output-token exhaustion instead
+of a generic invalid-JSON failure.
 
 ---
 

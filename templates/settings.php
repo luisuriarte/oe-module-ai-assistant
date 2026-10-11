@@ -408,7 +408,7 @@ use OpenEMR\Core\Header;
                         <div class="col-md-3 form-group">
                             <label><?php echo xlt('Model'); ?></label>
                             <input type="text" class="form-control" name="zai_model"
-                                   value="<?php echo attr($current['zai_model'] ?? 'glm-4-flash'); ?>">
+                                   value="<?php echo attr($current['zai_model'] ?? 'glm-4.5-flash'); ?>">
                         </div>
                         <div class="col-md-2 form-group">
                             <label><?php echo xlt('Temperature'); ?></label>

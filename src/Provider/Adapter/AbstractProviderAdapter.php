@@ -340,7 +340,7 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
                     $statusCode,
                     null,
                     $providerName
-                ))->setErrorDetail(self::providerErrorDetail($body, $statusCode));
+                ))->setErrorDetail($this->buildErrorDetail($body, $statusCode));
             }
 
             return [
@@ -364,6 +364,41 @@ abstract class AbstractProviderAdapter implements AiProviderInterface
     public static function shouldRetryHttpError(int $statusCode, int $attempt): bool
     {
         return $statusCode >= 500 && $attempt < 2;
+    }
+
+    /**
+     * Sanitized error detail for a rejected (4xx) request.
+     *
+     * In addition to the provider's error type/code this appends the name of a request
+     * field the provider blamed, when an adapter can identify it (see
+     * rejectedFieldFromErrorBody). Only the short field name is kept — never the
+     * provider's message, which can echo the prompt. ProviderException::setErrorDetail()
+     * sanitizes and truncates the result again before it is stored.
+     */
+    protected function buildErrorDetail(string $body, int $statusCode): string
+    {
+        $detail = self::providerErrorDetail($body, $statusCode);
+
+        $blamedField = $this->rejectedFieldFromErrorBody($body, $statusCode);
+        if ($blamedField !== null && $blamedField !== '') {
+            $detail .= ' param=' . preg_replace('/[^\w.\-]/', '', $blamedField);
+        }
+
+        return $detail;
+    }
+
+    /**
+     * Name of a request field the provider's error body blames on a 4xx response, if any.
+     *
+     * Providers that reject an unsupported optional parameter may still name the offending
+     * field in the error body. Adapters that add such a parameter need to know which field
+     * was blamed so they can drop exactly that field and retry once. Implementations must
+     * never persist or log the provider's message: only the short, fixed field name is
+     * returned. Default: nothing, so behavior is unchanged for every other adapter.
+     */
+    protected function rejectedFieldFromErrorBody(string $body, int $statusCode): ?string
+    {
+        return null;
     }
 
     /**
