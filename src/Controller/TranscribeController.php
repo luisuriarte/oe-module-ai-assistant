@@ -22,13 +22,13 @@
 namespace OpenEMR\Modules\AiAssistant\Controller;
 
 use finfo;
-use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Security\RateLimiter;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
@@ -82,14 +82,14 @@ class TranscribeController
         // 2. Check mode: test mode (admin-only) vs clinical mode (use permission)
         $isTest = !empty($_POST['test_mode']);
         if ($isTest) {
-            if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+            if (!AclGuard::canAdmin()) {
                 $this->respondError(403, 'access_denied');
                 return;
             }
             $pid       = 0;
             $encounter = 0;
         } else {
-            if (!AclMain::aclCheckCore('ai_assistant', 'use')) {
+            if (!AclGuard::canUse()) {
                 $this->respondError(403, 'access_denied');
                 return;
             }

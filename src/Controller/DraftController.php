@@ -6,7 +6,7 @@
  * Security checklist:
  *   1. Active OpenEMR session.
  *   2. CSRF token validation.
- *   3. ACL check: ai_assistant / use (or admin).
+ *   3. ACL check: native SOAP form permission (write/addonly).
  *   4. Patient access check: patients / med (or demo).
  *   5. Server-side validation that the encounter belongs to the requested patient.
  *   6. Encounter sensitivity ACL check.
@@ -35,6 +35,7 @@ use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Context\PatientContextBuilder;
 use OpenEMR\Modules\AiAssistant\Draft\SoapDraftGenerator;
 use OpenEMR\Modules\AiAssistant\Provider\Exception\ProviderException;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Security\RateLimiter;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
@@ -62,10 +63,10 @@ class DraftController
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        // 1. ACL Check: ai_assistant / use (admin allowed as override)
-        if (!AclMain::aclCheckCore('ai_assistant', 'use') && !AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        // 1. ACL Check: native SOAP form permission (write/addonly)
+        if (!AclGuard::canUse()) {
             http_response_code(403);
-            echo json_encode(['ok' => false, 'error' => xlt('Access denied: module use permission required.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied: you do not have permission to write encounter notes.')]);
             return;
         }
 

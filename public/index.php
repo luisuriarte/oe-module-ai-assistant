@@ -18,9 +18,9 @@
 $sessionAllowWrite = true;
 require_once __DIR__ . '/../../../../globals.php';
 
-use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Logging\SystemLogger;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Controller\ChatController;
 use OpenEMR\Modules\AiAssistant\Controller\DraftController;
@@ -62,19 +62,20 @@ if (empty($_SESSION['authUserID'])) {
 
 $action = $_GET['action'] ?? 'settings';
 
-// Route table: action => [controller_class, method, acl_section, acl_object]
+// Route table: action => [controller_class, method, required_permission]
+// required_permission: 'admin' = native superuser; 'use' = native SOAP form (write/addonly)
 $routes = [
-    'settings'          => [SettingsController::class, 'dispatch', 'ai_assistant', 'admin'],
-    'test_whisper'      => [SettingsController::class, 'testWhisper', 'ai_assistant', 'admin'],
-    'test_provider'     => [SettingsController::class, 'testProvider', 'ai_assistant', 'admin'],
-    'admin_test_prompt' => [SettingsController::class, 'adminTestPrompt', 'ai_assistant', 'admin'],
-    'preview_context'   => [SettingsController::class, 'previewContext', 'ai_assistant', 'admin'],
-    'module_status'     => [SettingsController::class, 'moduleStatus', 'ai_assistant', 'use'],
-    'transcribe_submit' => [TranscribeController::class, 'submit', 'ai_assistant', 'use'],
-    'transcribe_status' => [TranscribeController::class, 'status', 'ai_assistant', 'use'],
-    'soap_draft'        => [DraftController::class, 'createDraft', 'ai_assistant', 'use'],
-    'soap_ai_save'      => [SoapAiFormController::class, 'save', 'ai_assistant', 'use'],
-    'chat'              => [ChatController::class, 'send', 'ai_assistant', 'use'],
+    'settings'          => [SettingsController::class, 'dispatch', 'admin'],
+    'test_whisper'      => [SettingsController::class, 'testWhisper', 'admin'],
+    'test_provider'     => [SettingsController::class, 'testProvider', 'admin'],
+    'admin_test_prompt' => [SettingsController::class, 'adminTestPrompt', 'admin'],
+    'preview_context'   => [SettingsController::class, 'previewContext', 'admin'],
+    'module_status'     => [SettingsController::class, 'moduleStatus', 'use'],
+    'transcribe_submit' => [TranscribeController::class, 'submit', 'use'],
+    'transcribe_status' => [TranscribeController::class, 'status', 'use'],
+    'soap_draft'        => [DraftController::class, 'createDraft', 'use'],
+    'soap_ai_save'      => [SoapAiFormController::class, 'save', 'use'],
+    'chat'              => [ChatController::class, 'send', 'use'],
 ];
 
 if (!isset($routes[$action])) {
@@ -82,16 +83,15 @@ if (!isset($routes[$action])) {
     exit(json_encode(['error' => xlt('Not found'), 'error_type' => 'not_found']));
 }
 
-[$class, $method, $aclSection, $aclObject] = $routes[$action];
+[$class, $method, $required] = $routes[$action];
 
-// ACL check: allows 'admin' as an override for 'use' routes
-if (!AclMain::aclCheckCore($aclSection, $aclObject)) {
-    if ($aclObject === 'use' && AclMain::aclCheckCore($aclSection, 'admin')) {
-        // admin permitted
-    } else {
-        http_response_code(403);
-        exit(json_encode(['error' => xlt('Access denied.'), 'error_type' => 'access_denied']));
-    }
+// Authorization: gate every route through AclGuard, which delegates to native OpenEMR
+// permissions. 'admin' routes need the superuser permission; 'use' routes need the same
+// permission as the native SOAP form (write/addonly on encounters|notes).
+$allowed = ($required === 'admin') ? AclGuard::canAdmin() : AclGuard::canUse();
+if (!$allowed) {
+    http_response_code(403);
+    exit(json_encode(['error' => xlt('Access denied.'), 'error_type' => 'access_denied']));
 }
 
 // The route hands full control to a controller method. Any Throwable that escapes

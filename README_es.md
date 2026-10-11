@@ -54,6 +54,7 @@ oe-module-ai-assistant/
 │   ├── Draft/SoapDraftGenerator    Transcripción + contexto → JSON S/O/A/P validado
 │   ├── Service/ChatService         Conversación con alcance por paciente
 │   ├── Security/ConsentGate        Puerta de consentimiento del lado servidor
+│   ├── Security/AclGuard           Puerta de permisos nativos (canUse/canAdmin)
 │   ├── Security/RateLimiter        Ventanas de 60 s por usuario para endpoints de pago
 │   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
 │   ├── Provider/Exception/         Códigos de error fijos; nunca filtra respuestas del proveedor
@@ -103,7 +104,7 @@ oe-module-ai-assistant/
 3. El Administrador de Módulos creará automáticamente:
    - Las tablas `oe_ai_assistant_audit`, `oe_ai_assistant_settings` y `oe_ai_assistant_rate_limits`
    - Ejecutar `sql/upgrade.sql` (idempotente) para que las instalaciones existentes obtengan el esquema actual
-   - La sección ACL `ai_assistant` con los objetos `use` y `admin`
+   - Registra los listeners SOAP del módulo (no crea ACL propia; el acceso usa el permiso nativo del formulario SOAP)
 
 4. **Traducciones:** ejecutar `sql/lang_custom.sql` directamente en la base de datos de OpenEMR:
    ```bash
@@ -195,10 +196,17 @@ en lugar de un fallo genérico de JSON inválido.
 
 ## Permisos ACL
 
-| Sección | Objeto | Propósito |
-|---|---|---|
-| `ai_assistant` | `use` | Usar dictado y chat |
-| `ai_assistant` | `admin` | Acceder a la página de configuración |
+El módulo **no incluye ACL propia**: los administradores no tienen nada extra que configurar.
+
+- **Usar el asistente** (el botón lanzador, el editor SOAP-IA, dictado/transcripción, la
+  generación de borradores y el panel de chat) requiere el mismo permiso que usa el
+  formulario SOAP nativo. Se lee del registro de formularios (`aco_spec` del directorio
+  `soap`, `encounters|notes`) mediante
+  `AclMain::aclCheckForm('soap', '', ['write', 'addonly'])`, de modo que un usuario que
+  puede crear o editar una nota SOAP puede usar el asistente. Si necesita otras reglas,
+  cambie el `aco_spec` del formulario en el registro.
+- **La configuración del módulo** requiere el permiso nativo de superusuario de OpenEMR
+  (`AclMain::aclCheckCore('admin', 'super')`).
 
 ---
 

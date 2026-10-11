@@ -42,10 +42,10 @@
 
 namespace OpenEMR\Modules\AiAssistant\EventListener;
 
-use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Events\Core\ScriptFilterEvent;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
 
 class SoapFormScriptListener
@@ -93,9 +93,11 @@ class SoapFormScriptListener
             return;
         }
 
-        // Check 2: User must hold the 'use' permission
-        $hasAcl = AclMain::aclCheckCore('ai_assistant', 'use');
-        $this->logger->debug('[AiAssistant:SoapListener] ACL ai_assistant/use = ' . ($hasAcl ? 'YES' : 'NO'));
+        // Check 2: User must hold the native SOAP form permission (write or addonly).
+        // The module no longer ships an ACL of its own; access is delegated to the same
+        // permission the native SOAP form uses.
+        $hasAcl = AclGuard::canUse();
+        $this->logger->debug('[AiAssistant:SoapListener] native SOAP form permission (write/addonly) = ' . ($hasAcl ? 'YES' : 'NO'));
         if (!$hasAcl) {
             return;
         }
@@ -124,7 +126,7 @@ class SoapFormScriptListener
             return;
         }
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'use')) {
+        if (!AclGuard::canUse()) {
             return;
         }
 

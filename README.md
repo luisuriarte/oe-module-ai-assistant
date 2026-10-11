@@ -54,6 +54,7 @@ oe-module-ai-assistant/
 │   ├── Draft/SoapDraftGenerator    Transcript + context → validated S/O/A/P JSON
 │   ├── Service/ChatService         Patient-scoped conversation
 │   ├── Security/ConsentGate        Server-side consent gate for all outbound calls
+│   ├── Security/AclGuard           Native-permission gate (canUse/canAdmin)
 │   ├── Security/RateLimiter        Per-user 60s windows for provider-bound endpoints
 │   ├── Session/                    SessionAccessor, CsrfCompat (8.2.0 / 8.4.1)
 │   ├── Provider/Exception/         Fixed error codes, never leaks provider bodies
@@ -103,7 +104,7 @@ oe-module-ai-assistant/
 3. The Module Manager will:
    - Create tables `oe_ai_assistant_audit`, `oe_ai_assistant_settings` and `oe_ai_assistant_rate_limits`
    - Run `sql/upgrade.sql` (idempotent) so existing installs get the current schema
-   - Register ACL section `ai_assistant` with objects `use` and `admin`
+   - Register the module's SOAP event listeners (no ACL is created; access uses the native SOAP form permission)
 
 4. **Translations:** run `sql/lang_custom.sql` directly against your OpenEMR database to install Spanish (Latin American) translations:
    ```bash
@@ -195,10 +196,16 @@ of a generic invalid-JSON failure.
 
 ## ACL Permissions
 
-| Section | Object | Purpose |
-|---|---|---|
-| `ai_assistant` | `use` | Use dictation and chat features |
-| `ai_assistant` | `admin` | Access module settings page |
+The module ships **no ACL of its own** — administrators have nothing extra to configure.
+
+- **Using the assistant** (the launcher button, the SOAP-AI editor, dictation/transcription,
+  draft generation and the chat panel) requires the same permission the native SOAP form
+  uses. It is read from the form registry (`aco_spec` for the `soap` form directory,
+  `encounters|notes`) via `AclMain::aclCheckForm('soap', '', ['write', 'addonly'])`, so a
+  user who can create or edit a SOAP note can use the assistant. Change the form's
+  `aco_spec` in the registry if you need different rules.
+- **Module settings** require the native OpenEMR superuser permission
+  (`AclMain::aclCheckCore('admin', 'super')`).
 
 ---
 

@@ -5,7 +5,7 @@
  *
  * Security checklist (enforced on every request):
  *   1. Valid OpenEMR session (checked by moduleConfig.php / index.php before calling us)
- *   2. ACL: ai_assistant / admin
+ *   2. ACL: native OpenEMR superuser (admin/super)
  *   3. CSRF token on all POST requests
  *   4. API key values never sent back to the browser
  *
@@ -27,6 +27,7 @@ use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
 use OpenEMR\Modules\AiAssistant\Draft\SoapDraftGenerator;
 use OpenEMR\Modules\AiAssistant\Provider\ProviderFactory;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Transcription\TranscriptionClient;
 
@@ -46,8 +47,8 @@ class SettingsController
      */
     public function dispatch(): void
     {
-        // ACL guard — must have ai_assistant / admin permission
-        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        // ACL guard — must hold the native OpenEMR superuser permission
+        if (!AclGuard::canAdmin()) {
             http_response_code(403);
             echo xlt('Access denied.');
             return;
@@ -74,7 +75,7 @@ class SettingsController
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'use') && !AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        if (!AclGuard::canUse()) {
             http_response_code(403);
             echo json_encode([
                 'ok'      => false,
@@ -395,13 +396,13 @@ class SettingsController
 
     /**
      * AJAX endpoint: tests connection to the Whisper transcription server.
-     * Enforces ai_assistant/admin ACL and CSRF token.
+     * Enforces the native OpenEMR superuser ACL and CSRF token.
      */
     public function testWhisper(): void
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        if (!AclGuard::canAdmin()) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => xlt('Access denied.'), 'error_type' => 'access_denied']);
             return;
@@ -442,13 +443,13 @@ class SettingsController
 
     /**
      * AJAX endpoint: tests connection to an AI provider (e.g. Gemini models.list).
-     * Enforces ai_assistant/admin ACL and CSRF token. Consumes 0 tokens.
+     * Enforces the native OpenEMR superuser ACL and CSRF token. Consumes 0 tokens.
      */
     public function testProvider(): void
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        if (!AclGuard::canAdmin()) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => xlt('Access denied.'), 'error_type' => 'access_denied']);
             return;
@@ -485,14 +486,14 @@ class SettingsController
 
     /**
      * AJAX endpoint: runs a synthetic test prompt through the real provider adapter.
-     * Enforces ai_assistant/admin ACL and CSRF token.
+     * Enforces the native OpenEMR superuser ACL and CSRF token.
      * Audited with patient_id = 0, encounter_id = 0, and records token usage.
      */
     public function adminTestPrompt(): void
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        if (!AclGuard::canAdmin()) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
             return;
@@ -599,7 +600,7 @@ class SettingsController
 
     /**
      * AJAX endpoint: generates patient context and runs automated leak check.
-     * Enforces ai_assistant/admin ACL, patient access ACL (patients/med or patients/demo),
+     * Enforces the native OpenEMR superuser ACL, patient access ACL (patients/med or patients/demo),
      * and CSRF token.
      * Audited with patient_id, duration, and leak check outcome WITHOUT logging any clinical text.
      */
@@ -607,7 +608,7 @@ class SettingsController
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        if (!AclGuard::canAdmin()) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => xlt('Access denied.')]);
             return;

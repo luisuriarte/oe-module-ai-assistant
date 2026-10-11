@@ -228,7 +228,7 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'AI provider communication failed. Please retry.', 'Falló la comunicación con el proveedor de IA. Intente de nuevo.'),
 ('Spanish (Latin American)', 'el', 'AI provider rate limit reached. Please wait a few seconds before retrying.', 'Se alcanzó el límite de solicitudes del proveedor de IA. Espere unos segundos antes de reintentar.'),
 ('Spanish (Latin American)', 'el', 'Access denied: You do not have permission to access this sensitive encounter.', 'Acceso denegado: no tiene permiso para acceder a este encuentro sensible.'),
-('Spanish (Latin American)', 'el', 'Access denied: module use permission required.', 'Acceso denegado: se requiere el permiso de uso del módulo.'),
+('Spanish (Latin American)', 'el', 'Access denied: you do not have permission to write encounter notes.', 'Acceso denegado: no tiene permiso para escribir notas de encuentro.'),
 ('Spanish (Latin American)', 'el', 'An unexpected error occurred while generating the SOAP draft.', 'Ocurrió un error inesperado al generar el borrador SOAP.'),
 ('Spanish (Latin American)', 'el', 'Encounter not found.', 'Encuentro no encontrado.'),
 ('Spanish (Latin American)', 'el', 'Invalid patient ID.', 'ID de paciente inválido.'),

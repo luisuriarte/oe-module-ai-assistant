@@ -41,9 +41,8 @@ PHP mínimo: **8.2.0**
 | `EncounterService::getMostRecentEncounterForPatient()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `($pid): ?array` |
 | `PatientIssuesService::getActiveIssues()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `(int $pid): ProcessingResult` |
 | `PatientIssuesService::getOneById()` | `OpenEMR\Services` | ✅ | ✅ | Firma idéntica: `($issueId)` |
-| `AclMain::aclCheckCore()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Verifica `(section, value, user, return_val)` |
-| `AclExtended::addObjectSectionAcl()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico |
-| `AclExtended::addObjectAcl()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico |
+| `AclMain::aclCheckCore()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Verifica `(section, value, user, return_val)`; usado para los chequeos nativos `admin/super`, paciente y sensibilidad |
+| `AclMain::aclCheckForm()` | `OpenEMR\Common\Acl` | ✅ | ✅ | Idéntico. Lee el `aco_spec` del registro de formularios de un directorio (`soap` → `encounters|notes`); usado por `Security\AclGuard::canUse()` |
 | `CsrfUtils::verifyCsrfToken()` | `OpenEMR\Common\Csrf` | ✅ | ✅ | Firma idéntica: `($token, SessionInterface $session, string $subject = 'default'): bool` |
 | `CsrfUtils::collectCsrfToken()` | `OpenEMR\Common\Csrf` | ✅ | ✅ | Firma idéntica: `(SessionInterface $session, string $subject = 'default'): string` |
 | `QueryUtils::fetchRecords()` | `OpenEMR\Common\Database` | ✅ | ✅ | Idéntico |
@@ -66,7 +65,7 @@ PHP mínimo: **8.2.0**
 | Columnas `form_soap` (`subjective`, `objective`, `assessment`, `plan`, `activity`) | OpenEMR DB | ✅ | ✅ | Sin cambios entre versiones; el editor escribe las mismas columnas que `C_FormSOAP` |
 | Editor SOAP-AI (`public/form.php`, `soap-ai.js`) | `OpenEMR\Modules\AiAssistant` | ✅ | ✅ | Editor moderno que lee/escribe el `form_soap` nativo; solo se llega desde el botón "IA" del SOAP nativo |
 | `SoapDraftGenerator` | `OpenEMR\Modules\AiAssistant\Draft` | ✅ | ✅ | Validación de esquema, reintento ante JSON inválido, anti-inyección y verosimilitud |
-| `DraftController` (`action=soap_draft`) | `OpenEMR\Modules\AiAssistant\Controller` | ✅ | ✅ | Sesión, CSRF, ACL use, acceso a paciente, cruce paciente/encuentro, timeout 60s, auditoría sin texto clínico |
+| `DraftController` (`action=soap_draft`) | `OpenEMR\Modules\AiAssistant\Controller` | ✅ | ✅ | Sesión, CSRF, ACL nativa del formulario SOAP (vía `AclGuard`), acceso a paciente, cruce paciente/encuentro, timeout 60s, auditoría sin texto clínico |
 | Grabación con `MediaRecorder` | Web API | ✅ | ✅ | Soporte prioritario Safari `audio/mp4;codecs=mp4a.40.2` y fallback a `audio/webm;codecs=opus` |
 | `RateLimiter` (`Security\RateLimiter`) | `OpenEMR\Modules\AiAssistant\Security` | ✅ | ✅ | M7: ventanas fijas de 60 s por usuario para draft / chat / transcribe; contador atómico `INSERT … ON DUPLICATE KEY UPDATE`; nuevos buckets no requieren cambios de esquema |
 | `oe_ai_assistant_rate_limits` (tabla del módulo) | BD OpenEMR (propia del módulo) | ✅ | ✅ | Creada por `install.sql` / `upgrade.sql`; purgada oportunistamente por `RateLimiter` en cada chequeo (sin cron) |

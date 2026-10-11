@@ -54,6 +54,19 @@ All notable changes to **oe-module-ai-assistant**.
 - `LICENSE` (GNU GPL v3, mirrored from the OpenEMR repository) and this `CHANGELOG.md`.
 
 ### Changed
+- **Native OpenEMR permissions replace the module's own ACL.** The `ai_assistant` ACL
+  section (objects `use`/`admin`) is gone: a new `Security\AclGuard` centralizes
+  authorization and delegates to native checks. `canUse()` mirrors the native SOAP form
+  (`AclMain::aclCheckForm('soap', '', ['write', 'addonly'])`, i.e. `encounters|notes`) for
+  the launcher, the SOAP-AI editor, dictation/transcription, draft generation and the chat
+  panel; `canAdmin()` requires the superuser permission (`AclMain::aclCheckCore('admin',
+  'super')`) for settings and its actions. Every check fails closed (any `Throwable` →
+  deny) and sits behind two overridable seams, so `AclGuard` is unit-testable without
+  OpenEMR. `ModuleManagerListener` no longer registers an ACL on install/enable, but still
+  removes any legacy `ai_assistant` section on uninstall (idempotent, best-effort).
+  `public/index.php` and every controller/listener now use `AclGuard`; the stale "module use
+  permission required" message, the docs and `lang_custom.sql` were updated, and
+  `tests/AclGuardTest.php` covers the guard plus a static scan for the removed ACL.
 - `TranscribeController` (`submit`/`status`) maps every fixed code to a translatable message
   via `respondError()`; the client keeps the machine code and the user gets proper text.
 - `soap-ai.js` distinguishes a `rate_limited` 429 from a busy Whisper worker: a rate-limited

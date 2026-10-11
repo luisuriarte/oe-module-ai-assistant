@@ -4,7 +4,7 @@
  * ModuleManagerListener — handles Module Manager lifecycle events.
  *
  * Called by the Laminas Module Manager when the module is installed, enabled,
- * disabled or unregistered. Performs table creation, ACL registration and cleanup.
+ * disabled or unregistered. Performs table creation and legacy ACL cleanup.
  *
  * @package   OpenEMR
  * @subpackage AiAssistant
@@ -12,7 +12,6 @@
  * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
-use OpenEMR\Common\Acl\AclExtended;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\AbstractModuleActionListener;
@@ -65,7 +64,8 @@ class ModuleManagerListener extends AbstractModuleActionListener
 
     /**
      * Called when the module is first registered/installed.
-     * Creates database tables and registers ACL sections.
+     * Creates database tables. Registers no ACL: the module uses native OpenEMR
+     * permissions (see Security\AclGuard), so administrators have nothing extra to set up.
      */
     private function install($modId, string $currentActionStatus): string
     {
@@ -74,7 +74,6 @@ class ModuleManagerListener extends AbstractModuleActionListener
             // Creates the table when fresh; on a re-install it is a harmless no-op
             // if columns already have the target definition.
             $this->runUpgradeFile();
-            $this->registerAclSections();
         } catch (\Throwable $e) {
             $this->logger->error(
                 '[AiAssistant] install failed: ' . $e->getMessage()
@@ -131,7 +130,10 @@ class ModuleManagerListener extends AbstractModuleActionListener
     }
 
     /**
-     * Removes the module's ACL section and permission objects on unregister.
+     * Removes any 'ai_assistant' ACL section and its 'use'/'admin' objects left behind by
+     * a previous version that registered one. The module no longer creates an ACL of its
+     * own, so this is a best-effort, idempotent cleanup: it is a no-op when nothing exists
+     * and must never fail the uninstall.
      */
     private function unregisterAclSections(): void
     {
@@ -188,31 +190,6 @@ class ModuleManagerListener extends AbstractModuleActionListener
         foreach (self::splitSqlStatements($path) as $statement) {
             sqlStatement($statement);
         }
-    }
-
-    /**
-     * Registers the module's ACL section and permission objects.
-     * Uses addObjectSectionAcl / addObjectAcl which are idempotent (safe to run again).
-     * Identical API in OpenEMR 8.2.0 and 8.4.1.
-     */
-    private function registerAclSections(): void
-    {
-        // Section: ai_assistant
-        AclExtended::addObjectSectionAcl('ai_assistant', 'AI Assistant');
-
-        // Objects within the section
-        AclExtended::addObjectAcl(
-            'ai_assistant',
-            'AI Assistant',
-            'use',
-            'Use AI Assistant (dictation and chat)'
-        );
-        AclExtended::addObjectAcl(
-            'ai_assistant',
-            'AI Assistant',
-            'admin',
-            'Administer AI Assistant settings'
-        );
     }
 
     /**

@@ -6,7 +6,7 @@
  * Security checklist (mirrors DraftController and TranscribeController):
  *   1. Active OpenEMR session.
  *   2. CSRF token validation.
- *   3. ACL check: ai_assistant / use (or admin).
+ *   3. ACL check: native SOAP form permission (write/addonly).
  *   4. Patient access check: patients / med (or demo).
  *   5. Consent gate before any PHI is assembled.
  *   6. Server-side validation that the encounter exists and belongs to the patient,
@@ -34,6 +34,7 @@ use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Security\ConsentGate;
 use OpenEMR\Modules\AiAssistant\Security\RateLimiter;
 use OpenEMR\Modules\AiAssistant\Service\ChatService;
@@ -67,10 +68,10 @@ class ChatController
     {
         header('Content-Type: application/json; charset=utf-8');
 
-        // 1. ACL: ai_assistant / use (admin allowed as override)
-        if (!AclMain::aclCheckCore('ai_assistant', 'use') && !AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        // 1. ACL: native SOAP form permission (write/addonly)
+        if (!AclGuard::canUse()) {
             http_response_code(403);
-            echo json_encode(['ok' => false, 'error' => xlt('Access denied: module use permission required.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied: you do not have permission to write encounter notes.')]);
             return;
         }
 

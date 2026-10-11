@@ -17,7 +17,7 @@
  *
  * Security checklist:
  *   - Active OpenEMR session.
- *   - ACL ai_assistant/use (admin override) + patients/med|demo.
+ *   - ACL: native SOAP form permission (write/addonly) + patients/med|demo.
  *   - CSRF on save.
  *   - Server-side validation that the encounter belongs to the patient, that the
  *     note (when editing) belongs to that patient AND encounter, and encounter
@@ -41,6 +41,7 @@ use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Modules\AiAssistant\Audit\AuditLogger;
+use OpenEMR\Modules\AiAssistant\Security\AclGuard;
 use OpenEMR\Modules\AiAssistant\Session\CsrfCompat;
 use OpenEMR\Modules\AiAssistant\Session\SessionAccessor;
 use OpenEMR\Modules\AiAssistant\Settings\SettingsManager;
@@ -69,8 +70,8 @@ class SoapAiFormController
             return;
         }
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'use') && !AclMain::aclCheckCore('ai_assistant', 'admin')) {
-            $this->deny(403, xlt('Access denied: module use permission required.'));
+        if (!AclGuard::canUse()) {
+            $this->deny(403, xlt('Access denied: you do not have permission to write encounter notes.'));
             return;
         }
 
@@ -159,9 +160,9 @@ class SoapAiFormController
             return;
         }
 
-        if (!AclMain::aclCheckCore('ai_assistant', 'use') && !AclMain::aclCheckCore('ai_assistant', 'admin')) {
+        if (!AclGuard::canUse()) {
             http_response_code(403);
-            echo json_encode(['ok' => false, 'error' => xlt('Access denied: module use permission required.')]);
+            echo json_encode(['ok' => false, 'error' => xlt('Access denied: you do not have permission to write encounter notes.')]);
             return;
         }
 
