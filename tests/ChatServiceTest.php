@@ -111,6 +111,7 @@ function chatFixtureContext(): string
         . "### HISTORY AND HABITS\n- Current smoker\n\n"
         . "### RECENT VITAL SIGNS (2026-01-04)\n- BP: 140/90 mmHg\n\n"
         . "### PREVIOUS ENCOUNTERS (SOAP)\n- 2026-01-04: follow-up\n\n"
+        . "### CURRENT NOTE\n- Plan: review in 7 days\n\n"
         . "### RECENT LABORATORY RESULTS\n- Glucose: 95 mg/dL\n";
 }
 
@@ -255,6 +256,16 @@ ok($cites[0]['key'] === 'medicacion', 'the absent laboratory section and the unk
 ok($cites[0]['label'] === 'Current medication', 'English label returned when output_language is en');
 ok($en->stripCitationTags($reply) === 'Toma Losartán 50 mg y la glucosa fue 95.', 'citation tags are stripped from the reply');
 
+// The note open in the editor is its own citable section.
+$noteReply = "El plan es control en 7 días [[cite:nota_actual]].";
+$noteCites = $svc->extractCitations($noteReply, chatFixtureContext());
+ok(count($noteCites) === 1 && $noteCites[0]['key'] === 'nota_actual',
+    'the current note section can be cited when present');
+ok($noteCites[0]['label'] === 'Nota actual' || $noteCites[0]['label'] === 'Current note',
+    'the current note label is localized');
+ok(!$svc->sectionPresent('nota_actual', "### PATIENT PROFILE\n"),
+    'the current note section is absent when no note is provided');
+
 $es = chatServiceFixture($reply);
 $esCites = $es->extractCitations($reply, $ctxNoLabs);
 ok($esCites[0]['label'] === 'Medicación actual' || $esCites[0]['label'] === 'Current medication',
@@ -324,6 +335,30 @@ $reflection = new \ReflectionClass($defaultService);
 $property   = $reflection->getProperty('contextProvider');
 $property->setAccessible(true);
 ok($property->getValue($defaultService) === null, 'context provider defaults to PatientContextBuilder when not injected');
+
+echo "--- Current note forwarding ---\n";
+$capturedNote = null;
+$captureService = new ChatService(
+    new ChatSettingsManager(),
+    new RecordingProvider('ok'),
+    static function (int $pid, ?int $encounterId, array $currentNote = []) use (&$capturedNote): array {
+        $capturedNote = $currentNote;
+        return ['context' => "### CURRENT NOTE\n- Plan: revisar en 7 dias", 'tokens' => 5];
+    }
+);
+$captureService->ask('¿Qué dice el plan?', [], 7, 3, ['plan' => 'revisar en 7 dias']);
+ok($capturedNote === ['plan' => 'revisar en 7 dias'],
+    'the note open in the editor is forwarded to the context builder');
+
+// The historical two-argument provider contract must keep working when a note is sent.
+$twoArgService = new ChatService(
+    new ChatSettingsManager(),
+    new RecordingProvider('ok'),
+    static fn (int $pid, ?int $encounterId): array => ['context' => '', 'tokens' => 0]
+);
+$twoArgReply = $twoArgService->ask('hola', [], 7, 3, ['plan' => 'x']);
+ok(($twoArgReply['reply'] ?? '') === 'ok',
+    'a two-argument context provider tolerates the extra current-note argument');
 
 // -------------------------------------------------------------------------
 // Result

@@ -24,6 +24,7 @@ An OpenEMR custom module that helps clinicians write SOAP notes with AI-assisted
 - A side panel scoped to the current patient.
 - Answers questions using only the patient's de-identified chart data.
 - Cites which chart section each fact comes from, shown as chips under the answer. A section that is not present in the chart is never reported as a source.
+- Also considers the SOAP note currently open in the editor, even before it is saved: the panel sends the four fields with each question and they are rendered as an additional **current note** section (redacted and size-capped exactly like the stored notes).
 - Conversation history lives in the browser tab only: nothing is stored in the database, in the PHP session, or in any browser storage. The history is sent with each question and re-bounded server-side; a client-injected "system" turn is rejected so the model instructions cannot be rewritten.
 
 ---

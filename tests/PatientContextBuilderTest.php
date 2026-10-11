@@ -102,6 +102,7 @@ class PatientContextBuilderTest
         $this->testActiveAllergiesAndProblems();
         $this->testActiveMedicationsExcludesDiscontinued();
         $this->testLifestylePipeRendering();
+        $this->testClinicalHistoryDetailedRendering();
         $this->testSoftDeletedNotesExclusion();
         $this->testCrossPatientIsolation();
         $this->testEncounterSensitivityAcl();
@@ -109,6 +110,7 @@ class PatientContextBuilderTest
         $this->testClinicalNumbersNotRedacted();
         $this->testIdentifierRedactionRequiresEvidence();
         $this->testTokenBudgetAndTruncationPriority();
+        $this->testCurrentNotePrioritizedAndEncounterExcluded();
         $this->testRelativeDatesFormatting();
         $this->testLabsSettingGating();
         $this->testAutomatedLeakCheckPass();
@@ -339,6 +341,21 @@ class PatientContextBuilderTest
                 return [];
             }
 
+            // 10. HIS layout (usertext fields) and list_options title lookups.
+            if (str_contains($cleanSql, 'from layout_options')) {
+                return $customData['layout_options'] ?? [];
+            }
+            if (str_contains($cleanSql, 'from list_options')) {
+                $listId   = (string) ($params[0] ?? '');
+                $optionId = (string) ($params[1] ?? '');
+                $rows = $customData['list_options'] ?? [];
+                return array_values(array_filter(
+                    $rows,
+                    static fn (array $row): bool => ($row['list_id'] ?? '') === $listId
+                        && ($row['option_id'] ?? '') === $optionId
+                ));
+            }
+
             return [];
         };
     }
@@ -478,6 +495,119 @@ class PatientContextBuilderTest
         $this->assert(
             str_contains($context, 'Additional history: Free text history without pipes'),
             'Free text without pipes passes through unchanged'
+        );
+    }
+
+    /**
+     * Extended clinical history: lifestyle quit dates for any column, exam statuses
+     * resolved through list_options, family history (history_, relatives_ and dc_
+     * columns) and HIS usertext checkbox lists. The list and layout lookups are
+     * stubbed through the simulated DB router, exactly like the other queries.
+     */
+    public function testClinicalHistoryDetailedRendering(): void
+    {
+        $settings = new MockSettingsManager();
+
+        $build = function (array $history, array $lists = [], array $layout = []) use ($settings): string {
+            $db = $this->createSimulatedDatabase([
+                'history_data'   => [$history],
+                'list_options'   => $lists,
+                'layout_options' => $layout,
+            ]);
+            $builder = new PatientContextBuilder($settings, $db);
+            return $builder->buildContext(42)['text'];
+        };
+
+        // --- Lifestyle: quit date on any column, current states, omitted "none",
+        //     tobacco packs of 0 suppressed, free text passing through.
+        $context = $build([
+            'tobacco'            => '|currenttobacco||2|0',
+            'recreational_drugs' => '|quitrecreational_drugs|2010-10-10',
+            'coffee'             => '|currentcoffee|',
+            'alcohol'            => '|currentalcohol|',
+            'counseling'         => '|0|',
+            'additional_history' => 'Free text passing through',
+        ]);
+        $this->assert(str_contains($context, 'Recreational drugs: quit (2010-10-10)'), 'Lifestyle quit date renders for any column');
+        $this->assert(str_contains($context, 'Coffee: current'), 'A current lifestyle status renders');
+        $this->assert(str_contains($context, 'Alcohol: current'), 'A current alcohol status renders');
+        $this->assert(str_contains($context, 'Tobacco: current smoker'), 'Tobacco shows a readable current status');
+        $this->assert(!str_contains($context, '0 packs/day'), 'Tobacco packs of 0 are never shown');
+        $this->assert(!str_contains($context, 'Counseling received:'), 'A none-status field is omitted');
+        $this->assert(str_contains($context, 'Additional history: Free text passing through'), 'Free text passes through unchanged');
+        $this->assert(!str_contains($context, '|'), 'No raw pipe value leaks from history');
+
+        $quitTobacco = $build(['tobacco' => '|quittobacco||3|0']);
+        $this->assert(str_contains($quitTobacco, 'Tobacco: former smoker'), 'Tobacco quit without a date renders the status only');
+        $this->assert(!str_contains($quitTobacco, 'packs/day'), 'Tobacco packs of 0 are never shown on quit');
+
+        // Empty history row emits no section at all.
+        $this->assert(!str_contains($build([]), 'HISTORY AND HABITS'), 'An empty history row emits no HISTORY AND HABITS section');
+
+        // --- Exams.
+        $examsAllZero = 'brs:0:|cec:0:|ecg:0:|gyn:0:|mam:0:|phy:0:|pro:0:|rec:0:|sic:0:|ret:0:|flu:0:|pne:0:|ldl:0:|hem:0:|psa:0:';
+        $this->assert(
+            !str_contains($build(['exams' => $examsAllZero]), 'Exams and tests:'),
+            'Exams with every status 0 are omitted'
+        );
+
+        $examLists = [
+            ['list_id' => 'exams', 'option_id' => 'pro', 'title' => 'Prostate Exam'],
+            ['list_id' => 'exams', 'option_id' => 'ldl', 'title' => 'LDL Cholesterol'],
+            ['list_id' => 'exams', 'option_id' => 'psa', 'title' => 'PSA'],
+        ];
+        $examsNormal = 'brs:0:|cec:0:|ecg:0:|gyn:0:|mam:0:|phy:0:|pro:1:|rec:0:|sic:0:|ret:0:|flu:0:|pne:0:|ldl:1:|hem:0:|psa:1:';
+        $context = $build(['exams' => $examsNormal], $examLists);
+        $this->assert(
+            str_contains($context, 'Exams and tests: Prostate Exam: normal; LDL Cholesterol: normal; PSA: normal'),
+            'Exams render one line with list_options titles and normal statuses'
+        );
+
+        $context = $build(['exams' => 'pro:2:borderline|ldl:1:'], $examLists);
+        $this->assert(str_contains($context, 'Prostate Exam: abnormal (borderline)'), 'A status-2 exam renders abnormal with its redacted note');
+        $this->assert(str_contains($context, 'LDL Cholesterol: normal'), 'A status-1 exam renders normal');
+
+        // --- Family history, with coded dc_* appended.
+        $context = $build([
+            'relatives_cancer' => 'Hermano',
+            'history_mother'   => 'Diabetes',
+            'dc_mother'        => 'E11',
+        ]);
+        $this->assert(str_contains($context, 'Family history of cancer: Hermano'), 'relatives_cancer renders as family history free text');
+        $this->assert(str_contains($context, 'Mother history: Diabetes (E11)'), 'history_mother renders with its dc_ code');
+
+        // --- HIS usertext checkbox list: one unresolvable id is dropped.
+        $riskLists = [
+            ['list_id' => 'riskfactors', 'option_id' => 'ht',  'title' => 'Hypertension'],
+            ['list_id' => 'riskfactors', 'option_id' => 'db',  'title' => 'Diabetes'],
+            ['list_id' => 'riskfactors', 'option_id' => 'all', 'title' => 'Allergies'],
+        ];
+        $layout = [
+            ['field_id' => 'usertext11', 'title' => 'Risk Factors', 'data_type' => 21, 'list_id' => 'riskfactors'],
+        ];
+        $context = $build(['usertext11' => 'ht|db|all|zz'], $examLists, []);
+        $this->assert(!str_contains($context, 'Risk Factors:'), 'usertext fields are ignored when the layout does not enable them');
+
+        $context = $build(['usertext11' => 'ht|db|all|zz'], $riskLists, $layout);
+        $this->assert(
+            str_contains($context, 'Risk Factors: Hypertension, Diabetes, Allergies'),
+            'usertext checkbox list resolves ids to titles and drops the unresolvable one'
+        );
+
+        // --- A plain-text usertext slot passes through redaction; raw pipes are dropped.
+        $textLayout = [
+            ['field_id' => 'usertext12', 'title' => 'Medical History', 'data_type' => 2, 'list_id' => ''],
+        ];
+        $context = $build(['usertext12' => 'Hypertension since 2019'], [], $textLayout);
+        $this->assert(
+            str_contains($context, 'Medical History: Hypertension since 2019'),
+            'A plain-text usertext slot passes through redaction'
+        );
+
+        $context = $build(['usertext12' => 'raw|pipe|value'], [], $textLayout);
+        $this->assert(
+            !str_contains($context, 'raw|pipe|value') && !str_contains($context, 'Medical History:'),
+            'A usertext value with an unparsed pipe is discarded'
         );
     }
 
@@ -696,6 +826,56 @@ class PatientContextBuilderTest
         $this->assert(str_contains($context, 'Penicillin'), 'Core clinical sections (allergies) are preserved');
         $this->assert($res['truncated'] === true, 'Context is flagged truncated when an encounter is dropped');
         $this->assert($res['estimated_tokens'] <= 250, 'Assembled context never exceeds the configured token budget');
+    }
+
+    public function testCurrentNotePrioritizedAndEncounterExcluded(): void
+    {
+        $settings = new MockSettingsManager();
+        $db = $this->createSimulatedDatabase();
+        $builder = new PatientContextBuilder($settings, $db);
+
+        // Current encounter in the simulated data is 101 (the newest). The editor sends the
+        // S/O/A/P it is working on; the same encounter is excluded from PREVIOUS ENCOUNTERS.
+        $res = $builder->buildContext(42, 101, [
+            'subjective' => 'Cough for three days.',
+            'assessment' => 'Acute bronchitis.',
+            'plan'       => 'Symptomatic treatment, review in 7 days.',
+        ]);
+        $context = $res['text'];
+
+        $this->assert(
+            str_contains($context, '### CURRENT NOTE'),
+            'The note open in the editor is rendered as a CURRENT NOTE section',
+            $context
+        );
+        $this->assert(
+            str_contains($context, 'review in 7 days') && str_contains($context, 'Acute bronchitis.'),
+            'Current note fields are present in the context',
+            $context
+        );
+        $this->assert(
+            str_contains($context, 'CURRENT NOTE') && ($res['sections']['current_note'] ?? 0) > 0,
+            'The CURRENT NOTE section is counted in the section token breakdown'
+        );
+
+        // The current encounter's stored copy must not appear twice.
+        $this->assert(
+            strpos($context, 'Good glycemic control.') === false,
+            'The current encounter is excluded from previous encounters when a current note is provided',
+            $context
+        );
+        $this->assert(
+            str_contains($context, 'Plantar fasciitis.'),
+            'Older encounters are still included after the current one is excluded'
+        );
+
+        // Without a current note the stored encounter is still part of the context.
+        $resNoNote = $builder->buildContext(42, 101);
+        $this->assert(
+            str_contains($resNoNote['text'], 'Good glycemic control.'),
+            'Without a current note the stored encounter is still included',
+            $resNoNote['text']
+        );
     }
 
     public function testRelativeDatesFormatting(): void

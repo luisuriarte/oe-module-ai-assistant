@@ -427,6 +427,7 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'BMI', 'IMC'),
 ('Spanish (Latin American)', 'el', 'PREVIOUS ENCOUNTERS (SOAP)', 'CONSULTAS Y EVOLUCIONES PREVIAS (SOAP)'),
 ('Spanish (Latin American)', 'el', 'PREVIOUS ENCOUNTERS', 'CONSULTAS Y EVOLUCIONES PREVIAS'),
+('Spanish (Latin American)', 'el', 'CURRENT NOTE', 'NOTA ACTUAL'),
 ('Spanish (Latin American)', 'el', 'Encounter of', 'Consulta del'),
 ('Spanish (Latin American)', 'el', 'Encounter', 'Consulta'),
 ('Spanish (Latin American)', 'el', 'Subjective', 'Subjetivo'),
@@ -471,7 +472,23 @@ INSERT IGNORE INTO lang_custom (lang_description, lang_code, constant_name, defi
 ('Spanish (Latin American)', 'el', 'Microphone', 'Micrófono'),
 ('Spanish (Latin American)', 'el', 'Record from Microphone', 'Grabar desde el Micrófono'),
 ('Spanish (Latin American)', 'el', 'Stop Recording', 'Detener Grabación'),
-('Spanish (Latin American)', 'el', 'System default', 'Predeterminado del sistema')
+('Spanish (Latin American)', 'el', 'System default', 'Predeterminado del sistema'),
+
+-- Patient history — exams, family history and surgical add-ons
+('Spanish (Latin American)', 'el', 'Exams and tests', 'Exámenes y pruebas'),
+('Spanish (Latin American)', 'el', 'normal', 'normal'),
+('Spanish (Latin American)', 'el', 'abnormal', 'anormal'),
+('Spanish (Latin American)', 'el', 'Family history of cancer', 'Antecedentes familiares de cáncer'),
+('Spanish (Latin American)', 'el', 'Family history of tuberculosis', 'Antecedentes familiares de tuberculosis'),
+('Spanish (Latin American)', 'el', 'Family history of diabetes', 'Antecedentes familiares de diabetes'),
+('Spanish (Latin American)', 'el', 'Family history of high blood pressure', 'Antecedentes familiares de hipertensión arterial'),
+('Spanish (Latin American)', 'el', 'Family history of heart problems', 'Antecedentes familiares de problemas cardíacos'),
+('Spanish (Latin American)', 'el', 'Family history of stroke', 'Antecedentes familiares de accidente cerebrovascular'),
+('Spanish (Latin American)', 'el', 'Family history of epilepsy', 'Antecedentes familiares de epilepsia'),
+('Spanish (Latin American)', 'el', 'Family history of mental illness', 'Antecedentes familiares de enfermedad mental'),
+('Spanish (Latin American)', 'el', 'Family history of suicide', 'Antecedentes familiares de suicidio'),
+('Spanish (Latin American)', 'el', 'Hip replacement', 'Reemplazo de cadera'),
+('Spanish (Latin American)', 'el', 'Knee replacement', 'Reemplazo de rodilla')
 );
 -- ============================================================================
 -- 3. Synchronize lang_custom into lang_constants (add missing source strings)

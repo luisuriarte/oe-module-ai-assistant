@@ -24,6 +24,7 @@ Módulo personalizado de OpenEMR que ayuda a los médicos a redactar notas SOAP 
 - Panel lateral con alcance limitado al paciente actual.
 - Responde preguntas usando únicamente los datos desidentificados de la historia clínica del paciente.
 - Indica de qué sección de la ficha proviene cada dato, mostrados como etiquetas bajo la respuesta. Una sección ausente de la ficha nunca se reporta como fuente.
+- También tiene en cuenta la nota SOAP abierta en el editor, incluso antes de guardarla: el panel envía los cuatro campos con cada pregunta y se renderizan como una sección adicional de **nota actual** (redactada y con tope de tamaño igual que las notas guardadas).
 - El historial de conversación vive solo en la pestaña del navegador: no se guarda en la base de datos, en la sesión PHP ni en ningún almacenamiento del navegador. El historial viaja con cada pregunta y el servidor lo vuelve a acotar; además se rechaza cualquier turno "system" inyectado por el cliente para que no se puedan reescribir las instrucciones del modelo.
 
 ---

@@ -45,6 +45,9 @@ class ChatController
 {
     use ProviderErrorResponder;
 
+    /** Maximum characters accepted per SOAP field sent from the editor (defense in depth). */
+    private const MAX_CURRENT_NOTE_FIELD_CHARS = 4000;
+
     private SettingsManager $settings;
     private SystemLogger $logger;
     private ConsentGate $consent;
@@ -186,6 +189,11 @@ class ChatController
 
         $history = $this->decodeHistory((string) ($_POST['history'] ?? ''));
 
+        // 7a. The SOAP note currently open in the editor rides along so the answer can use
+        //     text that has not been saved yet. Each field is bounded here; redaction and
+        //     the overall size cap happen in PatientContextBuilder::formatCurrentNote().
+        $currentNote = $this->extractCurrentNote();
+
         // 7b. Rate limit: each chat question is a provider round-trip, so it is capped
         //     per authenticated user over a rolling 60-second window (M7). Enforced
         //     after input validation and before the session lock is released.
@@ -238,7 +246,7 @@ class ChatController
 
         try {
             $chatService = new ChatService($this->settings);
-            $result      = $chatService->ask($question, $history, $pid, $encounter);
+            $result      = $chatService->ask($question, $history, $pid, $encounter, $currentNote);
 
             $durationMs   = (int) round((microtime(true) - $start) * 1000);
             $providerName = $result['provider'];
@@ -351,6 +359,34 @@ class ChatController
 
         // ChatService applies the authoritative bounds (turn count, characters, roles).
         return (new ChatService($this->settings))->boundHistory($decoded);
+    }
+
+    /**
+     * Reads the four SOAP fields currently open in the editor (soap_subjective,
+     * soap_objective, soap_assessment, soap_plan). They are optional: a request without
+     * them behaves exactly as before. Each field is trimmed and bounded here;
+     * redaction and the overall size cap happen in PatientContextBuilder.
+     *
+     * @return array<string, string>
+     */
+    private function extractCurrentNote(): array
+    {
+        $note   = [];
+        $fields = ['subjective', 'objective', 'assessment', 'plan'];
+
+        foreach ($fields as $field) {
+            $raw   = $_POST['soap_' . $field] ?? '';
+            $value = is_string($raw) ? trim($raw) : '';
+            if ($value === '') {
+                continue;
+            }
+            if (mb_strlen($value) > self::MAX_CURRENT_NOTE_FIELD_CHARS) {
+                $value = mb_substr($value, 0, self::MAX_CURRENT_NOTE_FIELD_CHARS);
+            }
+            $note[$field] = $value;
+        }
+
+        return $note;
     }
 
     /**

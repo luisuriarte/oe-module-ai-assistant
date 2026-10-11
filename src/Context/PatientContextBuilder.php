@@ -51,10 +51,19 @@ class PatientContextBuilder
     /** Maximum number of clinical notes rendered in the context (newest first). */
     private const MAX_CLINICAL_NOTES = 10;
 
+    /** Maximum characters of the editor's current SOAP note rendered in the context. */
+    private const MAX_CURRENT_NOTE_CHARS = 8000;
+
     private SettingsManager $settings;
     private ?SystemLogger $logger;
     /** @var callable|null Callback for database queries: fn(string $sql, array $params): array */
     private $dbQueryCallback;
+
+    /** @var array<string, string> list_options title cache for the current request. */
+    private array $listOptionCache = [];
+
+    /** @var array<string, array{title: string, data_type: int, list_id: string}>|null HIS usertext fields, cached per request. */
+    private ?array $hisUsertextCache = null;
 
     public function __construct(?SettingsManager $settings = null, ?callable $dbQueryCallback = null)
     {
@@ -72,9 +81,11 @@ class PatientContextBuilder
      *
      * @param int      $pid         Patient ID
      * @param int|null $encounterId Optional current encounter ID (for priority vitals)
+     * @param array    $currentNote Optional SOAP note open in the editor (may be unsaved),
+     *                              keys: subjective, objective, assessment, plan
      * @return array{text: string, estimated_tokens: int, token_budget: int, truncated: bool, sections: array<string, int>}
      */
-    public function buildContext(int $pid, ?int $encounterId = null): array
+    public function buildContext(int $pid, ?int $encounterId = null, array $currentNote = []): array
     {
         if ($pid <= 0) {
             return [
@@ -112,8 +123,17 @@ class PatientContextBuilder
         $history      = $this->extractClinicalHistory($pid);
         $vitals       = $this->extractVitals($pid, $encounterId);
 
+        // Section A2: the SOAP note currently open in the editor. It may not be saved yet
+        // (so it is absent from form_soap); the editor sends it with the request. It is
+        // prioritized right after the baseline profile, and its own encounter is excluded
+        // from the previous-encounters list below so the same note is never duplicated.
+        $currentNoteText  = $this->formatCurrentNote($currentNote);
+        $excludeEncounter = ($currentNoteText !== '' && $encounterId !== null && $encounterId > 0)
+            ? $encounterId
+            : null;
+
         // Section B: Recent Encounters' SOAP Notes (Newest first)
-        $soapEncounters = $this->extractSoapEncounters($pid, $numSoapEnc);
+        $soapEncounters = $this->extractSoapEncounters($pid, $numSoapEnc, $excludeEncounter);
 
         // Section C: Labs (Optional, off by default)
         $labs = $includeLabs ? $this->extractRecentLabs($pid) : '';
@@ -130,6 +150,7 @@ class PatientContextBuilder
             medications: $medications,
             history: $history,
             vitals: $vitals,
+            currentNote: $currentNoteText,
             soapEncounters: $soapEncounters,
             clinicalNotes: $clinicalNotes,
             labs: $labs
@@ -604,6 +625,278 @@ class PatientContextBuilder
         return $result;
     }
 
+    /**
+     * HIS custom history fields (usertext11..usertext30) configured as visible
+     * (uor > 0). The field ids are validated before being injected into the
+     * history_data SELECT literal, so only safe identifiers reach the query.
+     *
+     * @return array<string, array{title: string, data_type: int, list_id: string}>
+     */
+    private function hisUsertextFields(): array
+    {
+        if ($this->hisUsertextCache !== null) {
+            return $this->hisUsertextCache;
+        }
+
+        $rows = $this->query(
+            "SELECT `field_id`, `title`, `data_type`, `list_id`
+             FROM `layout_options`
+             WHERE `form_id` = ? AND `uor` > 0
+             ORDER BY `seq` ASC",
+            ['HIS']
+        );
+
+        $fields = [];
+        foreach ($rows as $row) {
+            $fieldId = trim((string) ($row['field_id'] ?? ''));
+            if (preg_match('/^usertext(?:1[1-9]|2[0-9]|30)$/', $fieldId) !== 1) {
+                continue;
+            }
+            $fields[$fieldId] = [
+                'title'     => trim((string) ($row['title'] ?? '')),
+                'data_type' => (int) ($row['data_type'] ?? 0),
+                'list_id'   => trim((string) ($row['list_id'] ?? '')),
+            ];
+        }
+
+        $this->hisUsertextCache = $fields;
+        return $fields;
+    }
+
+    /**
+     * Resolves a list_options option id to its readable title. ListService is used
+     * when available; otherwise a direct whitelist query is used so the standalone
+     * test harness can stub the lookup. Returns '' when the option cannot be resolved.
+     */
+    private function resolveListOptionTitle(string $listId, string $optionId): string
+    {
+        $cacheKey = $listId . '|' . $optionId;
+        if (array_key_exists($cacheKey, $this->listOptionCache)) {
+            return $this->listOptionCache[$cacheKey];
+        }
+
+        $title = '';
+        if (class_exists(ListService::class)) {
+            try {
+                $option = (new ListService())->getListOption($listId, $optionId);
+                if (!empty($option['title'])) {
+                    $title = trim((string) $option['title']);
+                }
+            } catch (\Throwable $e) {
+                $this->logServiceFailure('ListService::getListOption(' . $listId . ')', $e);
+            }
+        }
+
+        if ($title === '') {
+            $rows = $this->query(
+                "SELECT `title` FROM `list_options`
+                 WHERE `list_id` = ? AND `option_id` = ? AND `activity` = 1
+                 ORDER BY `seq` ASC
+                 LIMIT 1",
+                [$listId, $optionId]
+            );
+            if (!empty($rows[0]['title'])) {
+                $title = trim((string) $rows[0]['title']);
+            }
+        }
+
+        $this->listOptionCache[$cacheKey] = $title;
+        return $title;
+    }
+
+    /**
+     * Translates a list_options title through the native helper when it is available.
+     */
+    private function translateListLabel(string $title): string
+    {
+        return function_exists('xl_list_label') ? (string) xl_list_label($title) : $title;
+    }
+
+    /**
+     * Translates a layout_options title through the native helper when it is available.
+     */
+    private function translateLayoutLabel(string $title): string
+    {
+        return function_exists('xl_layout_label') ? (string) xl_layout_label($title) : $title;
+    }
+
+    /**
+     * Whether the value is a real "YYYY-MM-DD" date (rejects empty and zero dates).
+     */
+    private function isValidIsoDate(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '' || $value === '0000-00-00') {
+            return false;
+        }
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $parts) !== 1) {
+            return false;
+        }
+        return checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]);
+    }
+
+    /**
+     * Family history: the free-text history_* fields (with their coded dc_* diagnosis
+     * appended) followed by the relatives_* free-text columns. Every value is redacted;
+     * a value still containing an unparsed pipe is discarded.
+     *
+     * @return string[] "Label: value" lines
+     */
+    private function renderFamilyHistory(array $r): array
+    {
+        $items = [];
+
+        $historyMap = [
+            'history_mother'    => ['Mother history', 'dc_mother'],
+            'history_father'    => ['Father history', 'dc_father'],
+            'history_siblings'  => ['Siblings history', 'dc_siblings'],
+            'history_offspring' => ['Offspring history', 'dc_offspring'],
+            'history_spouse'    => ['Spouse history', 'dc_spouse'],
+        ];
+
+        foreach ($historyMap as $column => [$label, $dcColumn]) {
+            $value = isset($r[$column]) ? trim((string) $r[$column]) : '';
+            if ($value === '' || strpos($value, '|') !== false) {
+                continue;
+            }
+            $value = $this->redactFreeText($value);
+
+            $codes = isset($r[$dcColumn]) ? trim((string) $r[$dcColumn]) : '';
+            if ($codes !== '' && strpos($codes, '|') === false) {
+                $value .= ' (' . $this->redactFreeText($codes) . ')';
+            }
+
+            $items[] = xl($label) . ': ' . $value;
+        }
+
+        $relativeMap = [
+            'relatives_cancer'              => 'Family history of cancer',
+            'relatives_tuberculosis'        => 'Family history of tuberculosis',
+            'relatives_diabetes'            => 'Family history of diabetes',
+            'relatives_high_blood_pressure' => 'Family history of high blood pressure',
+            'relatives_heart_problems'      => 'Family history of heart problems',
+            'relatives_stroke'              => 'Family history of stroke',
+            'relatives_epilepsy'            => 'Family history of epilepsy',
+            'relatives_mental_illness'      => 'Family history of mental illness',
+            'relatives_suicide'             => 'Family history of suicide',
+        ];
+
+        foreach ($relativeMap as $column => $label) {
+            if (!isset($r[$column]) || trim((string) $r[$column]) === '') {
+                continue;
+            }
+            $line = $this->renderHistoryItem($label, trim((string) $r[$column]));
+            if ($line !== '') {
+                $items[] = $line;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * HIS custom fields (usertext11..usertext30). Checkbox lists (data_type 21 and 22)
+     * resolve their pipe-separated option ids through the field's list_id, dropping the
+     * ones that cannot be resolved. Plain text/date slots (data_type 2, 3 and 4) pass
+     * through redaction. Any other data type is ignored.
+     *
+     * @param array<string, array{title: string, data_type: int, list_id: string}> $fields
+     * @return string[] "Label: option, option" or "Label: text" lines
+     */
+    private function renderUsertextFields(array $r, array $fields): array
+    {
+        $items = [];
+
+        foreach ($fields as $fieldId => $meta) {
+            $dataType = (int) ($meta['data_type'] ?? 0);
+            if (!isset($r[$fieldId]) || trim((string) $r[$fieldId]) === '') {
+                continue;
+            }
+
+            $title = trim((string) ($meta['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $title = $this->translateLayoutLabel($title);
+
+            // Checkbox lists: resolve each pipe-separated option id to its title and
+            // drop the ones that cannot be resolved.
+            if ($dataType === 21 || $dataType === 22) {
+                $listId = trim((string) ($meta['list_id'] ?? ''));
+                if ($listId === '') {
+                    continue;
+                }
+                $selected = [];
+                foreach (explode('|', (string) $r[$fieldId]) as $optionId) {
+                    $optionId = trim($optionId);
+                    if ($optionId === '') {
+                        continue;
+                    }
+                    $optionTitle = $this->resolveListOptionTitle($listId, $optionId);
+                    if ($optionTitle !== '') {
+                        $selected[] = $optionTitle;
+                    }
+                }
+                if ($selected !== []) {
+                    $items[] = $title . ': ' . implode(', ', $selected);
+                }
+                continue;
+            }
+
+            // Plain text/date slots: pass the value through redaction. Any value still
+            // carrying a raw pipe is discarded rather than leaked.
+            if ($dataType === 2 || $dataType === 3 || $dataType === 4) {
+                $value = trim((string) $r[$fieldId]);
+                if ($value !== '' && strpos($value, '|') === false) {
+                    $items[] = $title . ': ' . $this->redactFreeText($value);
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * Exam history: the exams column packs "key:status:note" entries separated by
+     * "|". Only status 1 (normal) and 2 (abnormal) are rendered; 0 means N/D and is
+     * omitted. The label is the list_options title of list 'exams' (falling back to
+     * the key when it cannot be resolved); the note is redacted.
+     */
+    private function renderExams(string $value): string
+    {
+        $parts = [];
+        foreach (explode('|', $value) as $item) {
+            $item = trim($item);
+            if ($item === '') {
+                continue;
+            }
+
+            $segments = explode(':', $item, 3);
+            $key    = trim((string) ($segments[0] ?? ''));
+            $status = trim((string) ($segments[1] ?? ''));
+            $note   = trim((string) ($segments[2] ?? ''));
+
+            if ($key === '' || ($status !== '1' && $status !== '2')) {
+                continue;
+            }
+
+            $title = $this->resolveListOptionTitle('exams', $key);
+            $title = $title !== '' ? $this->translateListLabel($title) : $key;
+
+            $entry = $title . ': ' . ($status === '1' ? xl('normal') : xl('abnormal'));
+            if ($note !== '' && strpos($note, '|') === false) {
+                $entry .= ' (' . $this->redactFreeText($note) . ')';
+            }
+            $parts[] = $entry;
+        }
+
+        if ($parts === []) {
+            return '';
+        }
+
+        return xl('Exams and tests') . ': ' . implode('; ', $parts);
+    }
+
     // -------------------------------------------------------------------------
     // Extraction Methods (Strict SQL Whitelist)
     // -------------------------------------------------------------------------
@@ -838,20 +1131,48 @@ class PatientContextBuilder
      * Column names come from the real history_data schema, verified identical across
      * OpenEMR 8.2.0, 8.4.1 and the current tree. There is no `exercise`, `diet`,
      * `medical_history`, `surgical_history`, `family_history` or `social_history`
-     * column — the lifestyle fields are `exercise_patterns` / `sleep_patterns`, and
-     * medical/surgical/family history lives in the usertextNN/userareaNN slots.
+     * column. Family history lives in history_mother/father/siblings/offspring/spouse
+     * (plus the coded dc_* values) and the relatives_* columns; surgical history lives
+     * in the surgical datetime columns; the exams column packs "key:status:note" exam
+     * entries. The HIS layout's enabled usertext11..usertext30 slots are read as well
+     * (checkbox lists resolved through their list_id, plain text passed through
+     * redaction). Output order: lifestyle,
+     * family (history_* then relatives_*), usertext, exams, surgical. Every free-text
+     * value is redacted; anything still carrying an unparsed pipe is discarded.
      */
     private function extractClinicalHistory(int $pid): string
     {
         $sql = "SELECT `tobacco`, `alcohol`, `coffee`, `exercise_patterns`,
                        `sleep_patterns`, `recreational_drugs`, `hazardous_activities`,
-                       `additional_history`, `counseling`,
-                       `history_mother`, `history_father`, `history_siblings`,
-                       `history_offspring`, `history_spouse`
+                       `additional_history`, `counseling`, `exams`,
+                       `history_mother`, `dc_mother`, `history_father`, `dc_father`,
+                       `history_siblings`, `dc_siblings`, `history_offspring`, `dc_offspring`,
+                       `history_spouse`, `dc_spouse`,
+                       `relatives_cancer`, `relatives_tuberculosis`, `relatives_diabetes`,
+                       `relatives_high_blood_pressure`, `relatives_heart_problems`,
+                       `relatives_stroke`, `relatives_epilepsy`, `relatives_mental_illness`,
+                       `relatives_suicide`,
+                       `appendectomy`, `cholecystestomy`, `hernia_repair`, `hysterectomy`,
+                       `heart_surgery`, `cataract_surgery`, `tonsillectomy`,
+                       `hip_replacement`, `knee_replacement`
                 FROM `history_data`
                 WHERE `pid` = ?
                 ORDER BY `date` DESC
                 LIMIT 1";
+
+        // The HIS usertext columns are built at runtime from validated field ids.
+        $usertextFields = $this->hisUsertextFields();
+        if ($usertextFields !== []) {
+            $extraColumns = [];
+            foreach (array_keys($usertextFields) as $column) {
+                $extraColumns[] = '`' . $column . '`';
+            }
+            $sql = str_replace(
+                'FROM `history_data`',
+                implode(', ', $extraColumns) . "\n                FROM `history_data`",
+                $sql
+            );
+        }
 
         $rows = $this->query($sql, [$pid]);
         $r = $rows[0] ?? [];
@@ -873,8 +1194,9 @@ class PatientContextBuilder
 
         $items = [];
 
-        // column => English label. Only non-empty values are emitted.
-        $map = [
+        // --- Lifestyle -------------------------------------------------------
+        // These columns may hold a pipe-delimited coded answer, parsed below.
+        $lifestyleMap = [
             'tobacco'              => 'Tobacco',
             'alcohol'              => 'Alcohol',
             'coffee'               => 'Coffee',
@@ -884,21 +1206,9 @@ class PatientContextBuilder
             'hazardous_activities' => 'Hazardous activities',
             'counseling'           => 'Counseling received',
             'additional_history'   => 'Additional history',
-            'history_mother'       => 'Mother history',
-            'history_father'       => 'Father history',
-            'history_siblings'     => 'Siblings history',
-            'history_offspring'    => 'Offspring history',
-            'history_spouse'       => 'Spouse history',
         ];
 
-        // Lifestyle columns whose value may be a pipe-delimited coded answer. The
-        // parsing itself is shape-based (see parseLifestylePipe()); only tobacco
-        // carries the extra smoking_status option id (list 'smoking_status').
-        $codedHistoryLists = [
-            'tobacco' => 'smoking_status',
-        ];
-
-        foreach ($map as $column => $label) {
+        foreach ($lifestyleMap as $column => $label) {
             if (!isset($r[$column]) || trim((string) $r[$column]) === '') {
                 continue;
             }
@@ -917,11 +1227,11 @@ class PatientContextBuilder
             $status = $parsed['status'];
             $note   = (string) $parsed['note'];
 
-            if (isset($codedHistoryLists[$column])) {
+            if ($column === 'tobacco') {
                 // Tobacco: prefer the resolved smoking_status title; fall back to the
                 // status-derived wording so output never depends on ListService.
                 $readable = $this->renderTobaccoStatus($status);
-                $resolved = $this->resolveCodedListValue($value, $codedHistoryLists[$column]);
+                $resolved = $this->resolveCodedListValue($value, 'smoking_status');
                 if ($resolved !== $value && strpos($resolved, '|') === false && trim($resolved) !== '') {
                     $readable = trim($resolved);
                 }
@@ -935,26 +1245,34 @@ class PatientContextBuilder
                 }
                 if ($status === 'quit') {
                     $quitDate = trim((string) ($parsed['segments'][2] ?? ''));
-                    if ($quitDate !== '' && $quitDate !== '0000-00-00') {
+                    if ($this->isValidIsoDate($quitDate)) {
                         $readable .= ' (' . xl('quit') . ': ' . $quitDate . ')';
                     }
                 }
-                if (($parsed['packs'] ?? '') !== '') {
+                if (($parsed['packs'] ?? '') !== '' && (float) $parsed['packs'] > 0) {
                     $readable .= ' — ' . $parsed['packs'] . ' ' . xl('packs/day');
                 }
                 if ($note !== '') {
                     $readable .= ' (' . $note . ')';
                 }
             } else {
-                // Regular lifestyle column: status wording plus optional note.
+                // Regular lifestyle column: status wording, quit date and optional note.
                 $readable = $this->renderLifestyleStatus($status);
                 if ($readable === '') {
                     if ($note === '') {
                         continue;
                     }
                     $readable = $note;
-                } elseif ($note !== '') {
-                    $readable .= ' (' . $note . ')';
+                } else {
+                    if ($status === 'quit') {
+                        $quitDate = trim((string) ($parsed['segments'][2] ?? ''));
+                        if ($this->isValidIsoDate($quitDate)) {
+                            $readable .= ' (' . $quitDate . ')';
+                        }
+                    }
+                    if ($note !== '') {
+                        $readable .= ' (' . $note . ')';
+                    }
                 }
             }
 
@@ -964,8 +1282,25 @@ class PatientContextBuilder
             }
         }
 
-        // Surgical history: the history_data surgical checkboxes (appendectomy, hernia
-        // repair, ...) plus each of the DC_* "denies" flags, which are meaningful data.
+        // --- Family history (history_* with dc_* codes, then relatives_*) ----
+        foreach ($this->renderFamilyHistory($r) as $line) {
+            $items[] = $line;
+        }
+
+        // --- HIS usertext custom fields (Risk Factors, ...) ------------------
+        foreach ($this->renderUsertextFields($r, $usertextFields) as $line) {
+            $items[] = $line;
+        }
+
+        // --- Exams -----------------------------------------------------------
+        if (isset($r['exams']) && trim((string) $r['exams']) !== '') {
+            $examsLine = $this->renderExams(trim((string) $r['exams']));
+            if ($examsLine !== '') {
+                $items[] = $examsLine;
+            }
+        }
+
+        // --- Surgical history ------------------------------------------------
         $surgical = [];
         foreach (
             [
@@ -976,6 +1311,8 @@ class PatientContextBuilder
                 'heart_surgery'    => 'Heart surgery',
                 'cataract_surgery' => 'Cataract surgery',
                 'tonsillectomy'    => 'Tonsillectomy',
+                'hip_replacement'  => 'Hip replacement',
+                'knee_replacement' => 'Knee replacement',
             ] as $column => $label
         ) {
             if (!empty($r[$column])) {
@@ -1092,7 +1429,7 @@ class PatientContextBuilder
      *
      * @return array<int, array{encounter: int, date: string, text: string, tokens: int}>
      */
-    private function extractSoapEncounters(int $pid, int $limit): array
+    private function extractSoapEncounters(int $pid, int $limit, ?int $excludeEncounter = null): array
     {
         // 1. Fetch recent encounters for this patient
         $intLimit = (int) ($limit * 2);
@@ -1117,6 +1454,12 @@ class PatientContextBuilder
 
             $encId       = (int) ($enc['encounter'] ?? 0);
             $sensitivity = trim((string) ($enc['sensitivity'] ?? 'normal'));
+
+            // The note open in the editor is sent separately as the CURRENT NOTE section:
+            // skip its encounter here so the same note is not rendered twice.
+            if ($excludeEncounter !== null && $encId === $excludeEncounter) {
+                continue;
+            }
 
             // Check encounter sensitivity via OpenEMR ACL
             if ($sensitivity !== '' && $sensitivity !== 'normal') {
@@ -1430,6 +1773,46 @@ class PatientContextBuilder
         return '### ' . xl('CLINICAL NOTES') . "\n" . implode("\n", array_column($entries, 'line')) . "\n";
     }
 
+    /**
+     * Formats the SOAP note currently open in the editor into a context section.
+     *
+     * The note may be unsaved, so it is not read from form_soap: the editor sends it
+     * with the request. The same best-effort redaction used for stored encounters is
+     * applied here, and the section is bounded so a hand-crafted request cannot inflate
+     * the prompt.
+     *
+     * @param array<string, mixed> $note Keys: subjective, objective, assessment, plan
+     * @return string Empty string when every field is blank (the section is omitted)
+     */
+    private function formatCurrentNote(array $note): string
+    {
+        $fields = [
+            'subjective' => xl('Subjective'),
+            'objective'  => xl('Objective'),
+            'assessment' => xl('Assessment'),
+            'plan'       => xl('Plan'),
+        ];
+
+        $lines = [];
+        foreach ($fields as $key => $label) {
+            $value = $this->redactFreeText(trim((string) ($note[$key] ?? '')));
+            if ($value !== '') {
+                $lines[] = '- ' . $label . ": {$value}";
+            }
+        }
+
+        if (empty($lines)) {
+            return '';
+        }
+
+        $body = implode("\n", $lines);
+        if (strlen($body) > self::MAX_CURRENT_NOTE_CHARS) {
+            $body = mb_substr($body, 0, self::MAX_CURRENT_NOTE_CHARS);
+        }
+
+        return '### ' . xl('CURRENT NOTE') . "\n" . $body;
+    }
+
     // -------------------------------------------------------------------------
     // Token Budget Management & Assembly
     // -------------------------------------------------------------------------
@@ -1438,8 +1821,9 @@ class PatientContextBuilder
      * Assembles all sections within token budget.
      * Truncation Strategy:
      *   1. Preserves baseline clinical profile (demographics, allergies, problems, meds, history, vitals).
-     *   2. Includes SOAP encounters newest first; truncates oldest encounters first.
-     *   3. Includes clinical notes next (newest first), then Labs, if budget permits.
+     *   2. Includes the note currently open in the editor next (it is what the clinician is working on).
+     *   3. Includes SOAP encounters newest first; truncates oldest encounters first.
+     *   4. Includes clinical notes next (newest first), then Labs, if budget permits.
      */
     private function assembleWithBudget(
         int $tokenBudget,
@@ -1449,6 +1833,7 @@ class PatientContextBuilder
         string $medications,
         string $history,
         string $vitals,
+        string $currentNote,
         array $soapEncounters,
         string $clinicalNotes,
         string $labs
@@ -1464,6 +1849,15 @@ class PatientContextBuilder
         }
         if ($vitals !== '') {
             $baseText .= $vitals . "\n";
+        }
+
+        $profileTokens = self::estimateTokens($baseText);
+
+        // The note open in the editor is part of the baseline priority block: it is what
+        // the clinician is actively working on, so it is never the first thing the budget
+        // drops (past encounters are).
+        if ($currentNote !== '') {
+            $baseText .= $currentNote . "\n";
         }
 
         $baseTokens = self::estimateTokens($baseText);
@@ -1529,7 +1923,8 @@ class PatientContextBuilder
         $finalTokens = self::estimateTokens($curText);
 
         $sections = [
-            'base_clinical_profile' => $baseTokens,
+            'base_clinical_profile' => $profileTokens,
+            'current_note'          => max(0, $baseTokens - $profileTokens),
             'soap_encounters'       => self::estimateTokens($soapText),
             'clinical_notes'        => self::estimateTokens($notesText),
             'labs'                  => self::estimateTokens($labsText),

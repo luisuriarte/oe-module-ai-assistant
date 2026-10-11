@@ -35,6 +35,12 @@ All notable changes to **oe-module-ai-assistant**.
   A **Record from Microphone** button in the Whisper test bench records a clip and feeds
   the existing test-mode `transcribe_submit` flow, validating the full browser → Whisper
   chain without needing an external audio file.
+- **Chat can see the note open in the editor** — `ChatController` forwards the four SOAP
+  fields currently in the editor (which may be unsaved) with each question; the context
+  builder renders them as a new, prioritized `CURRENT NOTE` section (citable as
+  `[[cite:nota_actual]]`) and excludes that encounter from the previous-encounters list so
+  the same note is not duplicated. The text is redacted with the same best-effort rules as
+  stored notes and bounded in size per field and overall.
 - `LICENSE` (GNU GPL v3, mirrored from the OpenEMR repository) and this `CHANGELOG.md`.
 
 ### Changed
@@ -58,6 +64,10 @@ All notable changes to **oe-module-ai-assistant**.
   a controller could catch the exception while the echoed text still broke the JSON body
   (browser: `Unexpected token ... is not valid JSON`). `public/index.php` now routes that
   output to the system log via `$GLOBALS['ADODB_OUTP']`.
+- **Chat reported "no information about the plan" for a note being dictated** — answers were
+  grounded only in saved `form_soap` rows, so text typed in the editor but not yet saved was
+  invisible to the model. The editor now sends the current S/O/A/P with each question (see
+  the `CURRENT NOTE` section above).
 
 ## Milestone history
 

@@ -945,6 +945,13 @@
             formData.append('message', question);
             formData.append('history', JSON.stringify(chatHistory));
 
+            // Include the note currently open in the editor so the answer can use text
+            // that has not been saved yet (the server redacts and caps it).
+            formData.append('soap_subjective', subjArea ? subjArea.value : '');
+            formData.append('soap_objective', objArea ? objArea.value : '');
+            formData.append('soap_assessment', assArea ? assArea.value : '');
+            formData.append('soap_plan', planArea ? planArea.value : '');
+
             fetch(publicEndpoint + '?action=chat&site=' + encodeURIComponent(siteId), {
                 method: 'POST',
                 credentials: 'same-origin',
